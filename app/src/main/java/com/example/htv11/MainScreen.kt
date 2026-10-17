@@ -38,81 +38,139 @@ data class GroupMember(
     @get:PropertyName("isOnline") @set:PropertyName("isOnline")
     var isOnline: Boolean = true,
     var lastNudged: Long = 0L,
-    var status: String = SafetyStatus.SAFE.key
+    var status: String = "safe"
+)
+
+data class EmergencyContact(
+    var name: String = "",
+    var phone: String = ""
 )
 
 @Composable
 fun MainGroupScreen(
     currentUserName: String = "Daniel",
     members: List<GroupMember>,
+    emergencyContacts: List<EmergencyContact> = emptyList(),
     onNudgeMember: (GroupMember) -> Unit = {},
+    onEmergencyContactClick: (EmergencyContact) -> Unit = {},
+    onAddEmergencyContactClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         // Reuse the background from RegistrationScreen
         DynamicBlueGridBackground()
 
-        Column(
+        LazyColumn(
             modifier = modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(top = 48.dp, bottom = 32.dp)
         ) {
-            Spacer(modifier = Modifier.height(48.dp))
+            // --- SECTION 1: KAZE SQUAD ---
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "KAZE SQUAD",
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Group Count: ${members.size}",
+                            fontSize = 13.sp,
+                            color = Color(0xFF8BB5E2)
+                        )
+                    }
 
-            // Header Section
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0x2200FFCC), RoundedCornerShape(20.dp))
+                            .border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(20.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = currentUserName,
+                            color = Color(0xFF00FFCC),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            items(
+                items = members,
+                key = { "squad_${it.id}" }
+            ) { member ->
+                MemberCard(
+                    member = member,
+                    isSelf = member.name.equals(currentUserName, ignoreCase = true),
+                    onNudgeClick = { onNudgeMember(member) }
+                )
+            }
+
+            // --- SECTION 2: EMERGENCY CONTACTS ---
+            item {
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Title and "+" button on the exact same line
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        text = "KAZE SQUAD",
-                        fontSize = 26.sp,
+                        text = "EMERGENCY CONTACTS",
+                        fontSize = 24.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
-                    Text(
-                        text = "Group Count: ${members.size}",
-                        fontSize = 13.sp,
-                        color = Color(0xFF8BB5E2)
-                    )
+
+                    Button(
+                        onClick = onAddEmergencyContactClick,
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0x2200FFCC),
+                            contentColor = Color(0xFF00FFCC)
+                        ),
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier
+                            .size(36.dp)
+                            .border(1.dp, Color(0xFF00FFCC), CircleShape)
+                    ) {
+                        Text(
+                            text = "+",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF00FFCC)
+                        )
+                    }
                 }
 
-                // Profile badge for the active user
-                Box(
-                    modifier = Modifier
-                        .background(Color(0x2200FFCC), RoundedCornerShape(20.dp))
-                        .border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(20.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = currentUserName,
-                        color = Color(0xFF00FFCC),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
+                Text(
+                    text = "Contact Count: ${emergencyContacts.size}",
+                    fontSize = 13.sp,
+                    color = Color(0xFF8BB5E2)
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Operatives List (Column)
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(bottom = 24.dp)
-            ) {
-                items(
-                    items = members,
-                    key = { it.id } // Ensures performant real-time additions/updates
-                ) { member ->
-                    MemberCard(
-                        member = member,
-                        isSelf = member.name.equals(currentUserName, ignoreCase = true),
-                        onNudgeClick = { onNudgeMember(member) }
-                    )
-                }
+            items(
+                items = emergencyContacts,
+                key = { "emergency_${it.name}" }
+            ) { contact ->
+                EmergencyContactCard (
+                    contact = contact,
+                    onContactClick = { onEmergencyContactClick(contact) }
+                )
             }
         }
     }
@@ -157,11 +215,21 @@ fun MemberCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                val statusStr = member.status.ifBlank { "safe" }.lowercase()
+                val (statusText, statusColor) = when (statusStr) {
+                    "danger" -> "Danger" to Color(0xFFFF5252)
+                    "unsure" -> "Unsure" to Color(0xFFFFC107)
+                    else -> "Safe" to Color(0xFF00FFCC)
+                }
+
                 // Glow dot
                 Box(
                     modifier = Modifier
                         .size(10.dp)
-                        .background(color = status.color, shape = CircleShape)
+                        .background(
+                            color = statusColor,
+                            shape = CircleShape
+                        )
                 )
 
                 Column {
@@ -205,6 +273,57 @@ fun MemberCard(
                         fontWeight = FontWeight.Bold
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun EmergencyContactCard(
+    contact: EmergencyContact,
+    onContactClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0x11FFFFFF), RoundedCornerShape(14.dp))
+            .border(1.dp, Color(0x3300FFCC), RoundedCornerShape(14.dp))
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text(
+                    text = contact.name,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White
+                )
+                Text(
+                    text = contact.phone.ifBlank { "No phone listed" },
+                    fontSize = 12.sp,
+                    color = Color(0xFF8BB5E2)
+                )
+            }
+
+            Button(
+                onClick = onContactClick,
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0x3300FFCC),
+                    contentColor = Color(0xFF00FFCC)
+                ),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                modifier = Modifier.border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(8.dp))
+            ) {
+                Text(
+                    text = "Contact",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }

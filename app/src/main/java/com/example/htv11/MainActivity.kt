@@ -121,14 +121,34 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
 
+                            var emergencyContacts by remember { mutableStateOf<List<EmergencyContact>>(emptyList()) }
+
+                            DisposableEffect(activeUser.uid) {
+                                // Listen to real emergency contacts
+                                val contactListener = UserRepository.observeEmergencyContacts(activeUser.uid) { liveContacts ->
+                                    emergencyContacts = liveContacts
+                                }
+
+                                onDispose {
+                                    UserRepository.removeEmergencyContactsObserver(activeUser.uid, contactListener)
+                                }
+                            }
+
                             MainGroupScreen(
                                 currentUserName = displayName,
                                 members = members,
+                                emergencyContacts = emergencyContacts,
                                 onNudgeMember = { member ->
                                     UserRepository.nudgeUser(member.id)
+                                    val nextStatus = when (member.status.lowercase()) {
+                                        "safe" -> "unsure"
+                                        "unsure" -> "unsure"
+                                        "danger" -> "danger"
+                                        else -> "safe"
+                                    }
                                     Toast.makeText(
                                         this,
-                                        "Nudged ${member.name}!",
+                                        "Nudged ${member.name}! Status -> $nextStatus",
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 },
