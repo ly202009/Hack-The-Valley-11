@@ -94,18 +94,23 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
 
-                            val mockEmergencyContacts = remember {
-                                listOf(
-                                    GroupMember(id = "e1", name = "Campus Security", isOnline = true),
-                                    GroupMember(id = "e2", name = "Paramedic Service", isOnline = true),
-                                    GroupMember(id = "e3", name = "Police Dispatch", isOnline = false)
-                                )
+                            var emergencyContacts by remember { mutableStateOf<List<EmergencyContact>>(emptyList()) }
+
+                            DisposableEffect(activeUser.uid) {
+                                // Listen to real emergency contacts
+                                val contactListener = UserRepository.observeEmergencyContacts(activeUser.uid) { liveContacts ->
+                                    emergencyContacts = liveContacts
+                                }
+
+                                onDispose {
+                                    UserRepository.removeEmergencyContactsObserver(activeUser.uid, contactListener)
+                                }
                             }
 
                             MainGroupScreen(
                                 currentUserName = displayName,
                                 members = members,
-                                emergencyContacts = mockEmergencyContacts,
+                                emergencyContacts = emergencyContacts,
                                 onNudgeMember = { member ->
                                     UserRepository.nudgeUser(member.id)
                                     Toast.makeText(this, "Nudged ${member.name}!", Toast.LENGTH_SHORT).show()

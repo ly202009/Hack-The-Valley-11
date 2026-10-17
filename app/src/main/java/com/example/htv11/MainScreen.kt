@@ -40,13 +40,18 @@ data class GroupMember(
     var lastNudged: Long = 0L
 )
 
+data class EmergencyContact(
+    var name: String = "",
+    var phone: String = ""
+)
+
 @Composable
 fun MainGroupScreen(
     currentUserName: String = "Daniel",
     members: List<GroupMember>,
-    emergencyContacts: List<GroupMember> = emptyList(),
+    emergencyContacts: List<EmergencyContact> = emptyList(),
     onNudgeMember: (GroupMember) -> Unit = {},
-    onEmergencyContactClick: (GroupMember) -> Unit = {},
+    onEmergencyContactClick: (EmergencyContact) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
@@ -129,12 +134,11 @@ fun MainGroupScreen(
 
             items(
                 items = emergencyContacts,
-                key = { "emergency_${it.id}" }
+                key = { "emergency_${it.name}" }
             ) { contact ->
-                MemberCard(
-                    member = contact,
-                    isSelf = false,
-                    onNudgeClick = { onEmergencyContactClick(contact) }
+                EmergencyContactCard (
+                    contact = contact,
+                    onContactClick = { onEmergencyContactClick(contact) }
                 )
             }
         }
@@ -211,6 +215,57 @@ fun MemberCard(
                         fontWeight = FontWeight.Bold
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun EmergencyContactCard(
+    contact: EmergencyContact,
+    onContactClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0x11FFFFFF), RoundedCornerShape(14.dp))
+            .border(1.dp, Color(0x3300FFCC), RoundedCornerShape(14.dp))
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text(
+                    text = contact.name,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White
+                )
+                Text(
+                    text = contact.phone.ifBlank { "No phone listed" },
+                    fontSize = 12.sp,
+                    color = Color(0xFF8BB5E2)
+                )
+            }
+
+            Button(
+                onClick = onContactClick,
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0x3300FFCC),
+                    contentColor = Color(0xFF00FFCC)
+                ),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                modifier = Modifier.border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(8.dp))
+            ) {
+                Text(
+                    text = "Contact",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }

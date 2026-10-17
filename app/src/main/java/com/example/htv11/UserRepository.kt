@@ -56,4 +56,55 @@ object UserRepository {
     fun nudgeUser(targetUserId: String) {
         usersRef.child(targetUserId).child("lastNudged").setValue(System.currentTimeMillis())
     }
+    
+    // Save or update an emergency contact
+    fun addEmergencyContact(
+        userId: String,
+        name: String,
+        phoneNumber: String,
+        onComplete: (Boolean) -> Unit = {}
+    ) {
+        usersRef.child(userId)
+            .child("emergency-contacts")
+            .child(name)
+            .child("phone")
+            .setValue(phoneNumber)
+            .addOnCompleteListener { task -> onComplete(task.isSuccessful) }
+    }
+
+    // Remove an emergency contact
+    fun deleteEmergencyContact(userId: String, name: String) {
+        usersRef.child(userId)
+            .child("emergency-contacts")
+            .child(name)
+            .removeValue()
+    }
+
+    // Live listener for the current user's emergency contacts
+    fun observeEmergencyContacts(
+        userId: String,
+        onUpdate: (List<EmergencyContact>) -> Unit
+    ): ValueEventListener {
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val contacts = mutableListOf<EmergencyContact>()
+                for (child in snapshot.children) {
+                    val name = child.key ?: ""
+                    val phone = child.child("phone").getValue(String::class.java) ?: ""
+                    contacts.add(EmergencyContact(name = name, phone = phone))
+                }
+                onUpdate(contacts)
+            }
+
+            override fun onCancelled(error: DatabaseError) {}
+        }
+
+        usersRef.child(userId).child("emergency-contacts").addValueEventListener(listener)
+        return listener
+    }
+
+    // Cleanup helper
+    fun removeEmergencyContactsObserver(userId: String, listener: ValueEventListener) {
+        usersRef.child(userId).child("emergency-contacts").removeEventListener(listener)
+    }
 }
