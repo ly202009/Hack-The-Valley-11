@@ -70,20 +70,32 @@ class MainActivity : ComponentActivity() {
                         // 3. Authenticated & verified user: proceed to main group screen
                         else -> {
                             val activeUser = currentUser!!
-                            val displayName = activeUser.displayName?.ifBlank { "Daniel" } ?: "Daniel"
+                            val displayName = activeUser.displayName?.ifBlank { "Operative" } ?: "Operative"
+                            var members by remember { mutableStateOf<List<GroupMember>>(emptyList()) }
 
-                            val mockMembers = remember(activeUser.uid) {
-                                listOf(
-                                    GroupMember(id = activeUser.uid, name = displayName, isOnline = true),
-                                    GroupMember(id = "2", name = "Sean", isOnline = true),
-                                    GroupMember(id = "3", name = "Liwen", isOnline = false),
-                                    GroupMember(id = "4", name = "Alex", isOnline = true)
+                            // Sync user profile and listen for updates from RTDB
+                            DisposableEffect(activeUser.uid) {
+                                val self = GroupMember(
+                                    id = activeUser.uid,
+                                    name = displayName,
+                                    isOnline = true,
+                                    lastNudged = 0L
                                 )
-                            }
+                                UserRepository.saveUser(self)
+                                UserRepository.setOnlineStatus(activeUser.uid, true)
 
+                                val listener = UserRepository.observeAllUsers { liveMembers ->
+                                    members = liveMembers
+                                }
+
+                                onDispose {
+                                    UserRepository.removeObserver(listener)
+                                    UserRepository.setOnlineStatus(activeUser.uid, false)
+                                }
+                            }
                             MainGroupScreen(
                                 currentUserName = displayName,
-                                members = mockMembers,
+                                members = members,
                                 onNudgeMember = { member ->
                                     Toast.makeText(
                                         this,
