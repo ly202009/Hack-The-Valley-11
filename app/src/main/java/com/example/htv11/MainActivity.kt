@@ -1,5 +1,7 @@
 package com.example.htv11
 
+import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -18,6 +20,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        handleEmergencyIntent(intent)
 
         setContent {
             Htv11Theme {
@@ -54,6 +58,10 @@ class MainActivity : ComponentActivity() {
                                         displayName = enteredName,
                                         onSuccess = {
                                             currentUser = AuthManager.currentUser
+                                            currentUser?.let { user ->
+                                                val prefs = getSharedPreferences("htv11_prefs", Context.MODE_PRIVATE)
+                                                prefs.edit().putString("current_user_id", user.uid).apply()
+                                            }
                                         },
                                         onError = { error ->
                                             Toast.makeText(
@@ -75,6 +83,9 @@ class MainActivity : ComponentActivity() {
 
                             // Sync user profile and listen for updates from RTDB
                             DisposableEffect(activeUser.uid) {
+                                val prefs = getSharedPreferences("htv11_prefs", Context.MODE_PRIVATE)
+                                prefs.edit().putString("current_user_id", activeUser.uid).apply()
+
                                 val self = GroupMember(
                                     id = activeUser.uid,
                                     name = displayName,
@@ -157,6 +168,15 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    private fun handleEmergencyIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra("EMERGENCY_TRIGGERED", false) == true) {
+            val user = AuthManager.currentUser
+            if (user != null) {
+                UserRepository.updateStatus(user.uid, "danger")
             }
         }
     }

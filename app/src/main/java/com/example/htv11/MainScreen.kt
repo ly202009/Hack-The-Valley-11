@@ -1,5 +1,8 @@
 package com.example.htv11
 
+import android.content.Intent
+import android.provider.Settings
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -154,6 +158,34 @@ fun MainGroupScreen(
                     }
                 }
 
+            Spacer(modifier = Modifier.height(16.dp))
+
+            val context = LocalContext.current
+            Button(
+                onClick = {
+                    val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(intent)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0x2200FFCC),
+                    contentColor = Color(0xFF00FFCC)
+                ),
+                border = BorderStroke(1.dp, Color(0xFF00FFCC))
+            ) {
+                Text(
+                    text = "⚙️ Enable Accessibility Settings",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     text = "Contact Count: ${emergencyContacts.size}",
                     fontSize = 13.sp,
@@ -215,8 +247,15 @@ fun MemberCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                val statusStr = member.status.ifBlank { "safe" }.lowercase()
-                val (statusText, statusColor) = when (statusStr) {
+                // Silent alarm facade: put up a cover (display "Safe") ONLY if the user's status is "danger"
+                val rawStatus = member.status.ifBlank { "safe" }.lowercase()
+                val effectiveStatus = if (isSelf && rawStatus == "danger") {
+                    "safe" // Facade cover when silent alarm is triggered
+                } else {
+                    rawStatus // Display RTDB status properly (safe, unsure, or danger)
+                }
+
+                val (statusText, statusColor) = when (effectiveStatus) {
                     "danger" -> "Danger" to Color(0xFFFF5252)
                     "unsure" -> "Unsure" to Color(0xFFFFC107)
                     else -> "Safe" to Color(0xFF00FFCC)
