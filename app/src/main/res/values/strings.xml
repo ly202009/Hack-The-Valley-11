@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">htv11</string>
+    <string name="accessibility_service_description">Monitors volume buttons in the background for emergency duress pattern.</string>
 </resources>
