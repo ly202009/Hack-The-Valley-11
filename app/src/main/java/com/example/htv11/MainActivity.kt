@@ -93,9 +93,24 @@ class MainActivity : ComponentActivity() {
                                     UserRepository.setOnlineStatus(activeUser.uid, false)
                                 }
                             }
+
+                            var emergencyContacts by remember { mutableStateOf<List<EmergencyContact>>(emptyList()) }
+
+                            DisposableEffect(activeUser.uid) {
+                                // Listen to real emergency contacts
+                                val contactListener = UserRepository.observeEmergencyContacts(activeUser.uid) { liveContacts ->
+                                    emergencyContacts = liveContacts
+                                }
+
+                                onDispose {
+                                    UserRepository.removeEmergencyContactsObserver(activeUser.uid, contactListener)
+                                }
+                            }
+
                             MainGroupScreen(
                                 currentUserName = displayName,
                                 members = members,
+                                emergencyContacts = emergencyContacts,
                                 onNudgeMember = { member ->
                                     UserRepository.nudgeUser(member.id, member.status)
                                     val nextStatus = when (member.status.lowercase()) {
