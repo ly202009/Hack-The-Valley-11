@@ -23,12 +23,6 @@ object UserRepository {
                 }
                 onResult(task.isSuccessful)
             }
-        }.addOnFailureListener {
-            userMap["status"] = member.status.ifBlank { "safe" }
-            usersRef.child(member.id).updateChildren(userMap).addOnCompleteListener { task ->
-                onResult(task.isSuccessful)
-            }
-        }
     }
 
     fun setOnlineStatus(userId: String, isOnline: Boolean) {
@@ -63,12 +57,6 @@ object UserRepository {
         usersRef.removeEventListener(listener)
     }
 
-    fun nudgeUser(targetUserId: String, currentStatus: String) {
-        val nextStatus = when (currentStatus.lowercase()) {
-            "safe" -> "unsure"
-            "unsure" -> "unsure"
-            "danger" -> "danger"
-            else -> "safe"
     fun nudgeUser(targetUserId: String) {
         val target = usersRef.child(targetUserId)
         target.child("lastNudged").setValue(System.currentTimeMillis())
@@ -139,16 +127,5 @@ object UserRepository {
     // Cleanup helper
     fun removeEmergencyContactsObserver(userId: String, listener: ValueEventListener) {
         usersRef.child(userId).child("emergency-contacts").removeEventListener(listener)
-    }
-
-    fun updateStatus(userId: String, status: String) {
-        usersRef.child(userId).child("status").setValue(status)
-            .addOnCompleteListener { task ->
-                if (task.isSuccessful) {
-                    println("RTDB UPDATE STATUS SUCCESS: $userId -> $status")
-                } else {
-                    println("RTDB UPDATE STATUS FAILED: ${task.exception?.message}")
-                }
-            }
     }
 }
