@@ -12,13 +12,27 @@ object UserRepository {
     private val usersRef: DatabaseReference = FirebaseDatabase.getInstance(db).getReference("UUID")
 
     fun saveUser(member: GroupMember, onResult: (Boolean) -> Unit = {}) {
-        usersRef.child(member.id).setValue(member)
-            .addOnCompleteListener { task ->
+        val userMap = mutableMapOf<String, Any>(
+            "id" to member.id,
+            "name" to member.name,
+            "isOnline" to member.isOnline
+        )
+        usersRef.child(member.id).child("status").get().addOnSuccessListener { snapshot ->
+            if (!snapshot.exists() || snapshot.value == null || (snapshot.value as? String).isNullOrBlank()) {
+                userMap["status"] = member.status.ifBlank { "safe" }
+            }
+            usersRef.child(member.id).updateChildren(userMap).addOnCompleteListener { task ->
                 if (!task.isSuccessful) {
                     println("RTDB SAVE FAILED: ${task.exception?.message}")
                 }
                 onResult(task.isSuccessful)
             }
+        }.addOnFailureListener {
+            userMap["status"] = member.status.ifBlank { "safe" }
+            usersRef.child(member.id).updateChildren(userMap).addOnCompleteListener { task ->
+                onResult(task.isSuccessful)
+            }
+        }
     }
 
     fun setOnlineStatus(userId: String, isOnline: Boolean) {
@@ -56,8 +70,7 @@ object UserRepository {
     fun nudgeUser(targetUserId: String, currentStatus: String) {
         val nextStatus = when (currentStatus.lowercase()) {
             "safe" -> "unsure"
-            "unsure" -> "unsure"
-            "danger" -> "danger"
+            "unsure" -> "danger"
             else -> "safe"
         }
         usersRef.child(targetUserId).child("status").setValue(nextStatus)
@@ -65,5 +78,12 @@ object UserRepository {
 
     fun updateStatus(userId: String, status: String) {
         usersRef.child(userId).child("status").setValue(status)
+            .addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    println("RTDB UPDATE STATUS SUCCESS: $userId -> $status")
+                } else {
+                    println("RTDB UPDATE STATUS FAILED: ${task.exception?.message}")
+                }
+            }
     }
 }

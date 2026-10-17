@@ -3,11 +3,10 @@ package com.example.htv11
 /**
  * Detector for volume button duress pattern.
  * Pattern rules:
- * - Up once or twice, Down once or twice, repeated 3 times.
- * - OR alternatively Down once or twice, Up once or twice, repeated 3 times.
- * - If the user presses up or down 3 times in a row rapidly, both counts reset.
- * - Adjustable reset timer between presses (resetTimeoutMillis).
- * - Exposes live state (up/down counts, block progress) via callback for live UI display.
+ * - When volume up and volume down are pressed rapidly within [resetTimeoutMillis], counts increment.
+ * - If volume up is pressed 3 times in a row OR volume down is pressed 3 times in a row, counters reset.
+ * - Otherwise, counts accumulate until upCount >= 3 AND downCount >= 3.
+ * - When both upCount >= 3 and downCount >= 3, duress alarm is triggered.
  */
 class VolumeDuressDetector(
     var resetTimeoutMillis: Long = 2000L,
@@ -26,40 +25,27 @@ class VolumeDuressDetector(
         UP, DOWN
     }
 
-    enum class PatternType {
-        UP_DOWN, DOWN_UP
-    }
-
     data class DetectorState(
-        val patternType: PatternType? = null,
-        val currentBlock: Int = 0,       // 0, 1, 2
-        val currentHalf: Int = 0,        // 0 = first half, 1 = second half
         val upCountInSequence: Int = 0,
         val downCountInSequence: Int = 0,
+        val consecutiveUp: Int = 0,
+        val consecutiveDown: Int = 0,
         val lastPress: VolumePress? = null,
         val isTriggered: Boolean = false
     )
 
     private var lastPressTime: Long = 0L
-    private var lastDirection: VolumePress? = null
-    private var consecutiveSameCount: Int = 0
-
-    private var patternType: PatternType? = null
-    private var currentBlock: Int = 0
-    private var currentHalf: Int = 0
-    private var currentHalfPressCount: Int = 0
-    private var detectedHalfPressCount: Int? = null
-
-    private var upCountInSequence: Int = 0
-    private var downCountInSequence: Int = 0
+    private var upCount: Int = 0
+    private var downCount: Int = 0
+    private var consecutiveUp: Int = 0
+    private var consecutiveDown: Int = 0
 
     private fun updateState(lastPress: VolumePress?, triggered: Boolean = false) {
         val state = DetectorState(
-            patternType = patternType,
-            currentBlock = currentBlock,
-            currentHalf = currentHalf,
-            upCountInSequence = upCountInSequence,
-            downCountInSequence = downCountInSequence,
+            upCountInSequence = upCount,
+            downCountInSequence = downCount,
+            consecutiveUp = consecutiveUp,
+            consecutiveDown = consecutiveDown,
             lastPress = lastPress,
             isTriggered = triggered
         )
@@ -69,104 +55,42 @@ class VolumeDuressDetector(
     fun onVolumePress(press: VolumePress): Boolean {
         val currentTime = timeProvider()
 
-        if (press == VolumePress.UP) {
-            upCountInSequence++
-        } else {
-            downCountInSequence++
+        // Debounce rapid duplicate key events (less than 50ms apart)
+        if (lastPressTime != 0L && (currentTime - lastPressTime < 50L)) {
+            logger(TAG, "Ignored duplicate press within 50ms debounce window")
+            return false
         }
 
+        // 1. Check timeout between presses
         if (lastPressTime != 0L && (currentTime - lastPressTime > resetTimeoutMillis)) {
             logger(TAG, "Reset: Timeout exceeded (${currentTime - lastPressTime}ms > ${resetTimeoutMillis}ms)")
             resetState()
         }
         lastPressTime = currentTime
 
-        if (lastDirection == press) {
-            consecutiveSameCount++
+        // 2. Process press direction and consecutive counts
+        if (press == VolumePress.UP) {
+            upCount++
+            consecutiveUp++
+            consecutiveDown = 0
         } else {
-            consecutiveSameCount = 1
-            lastDirection = press
+            downCount++
+            consecutiveDown++
+            consecutiveUp = 0
         }
 
-        if (consecutiveSameCount >= 3) {
+        logger(TAG, "Press: $press | Up: $upCount (consec: $consecutiveUp) | Down: $downCount (consec: $consecutiveDown)")
+
+        // 3. Reset if 3 in a row of the same button
+        if (consecutiveUp >= 3 || consecutiveDown >= 3) {
             logger(TAG, "Reset: 3 consecutive presses of $press in a row")
             resetState()
             updateState(press)
             return false
         }
 
-        if (patternType == null) {
-            patternType = if (press == VolumePress.UP) PatternType.UP_DOWN else PatternType.DOWN_UP
-            currentBlock = 0
-            currentHalf = 0
-            currentHalfPressCount = 1
-            logger(TAG, "Pattern initialized: $patternType, Block 0, Half 0, press $press (count=1)")
-            updateState(press)
-            return false
-        }
-
-        val firstHalfDir = if (patternType == PatternType.UP_DOWN) VolumePress.UP else VolumePress.DOWN
-        val secondHalfDir = if (patternType == PatternType.UP_DOWN) VolumePress.DOWN else VolumePress.UP
-
-        val targetDir = if (currentHalf == 0) firstHalfDir else secondHalfDir
-
-        if (press == targetDir) {
-            currentHalfPressCount++
-            if (currentHalfPressCount > 2) {
-                logger(TAG, "Reset: Half exceeded 2 presses")
-                resetState()
-                updateState(press)
-                return false
-            }
-            logger(TAG, "Continued Block $currentBlock Half $currentHalf with $press (count=$currentHalfPressCount)")
-
-            if (currentBlock == 2 && currentHalf == 1) {
-                val targetCount = detectedHalfPressCount ?: 1
-                if (currentHalfPressCount == targetCount) {
-                    triggerDuress(press)
-                    return true
-                }
-            }
-        } else {
-            if (detectedHalfPressCount == null) {
-                detectedHalfPressCount = currentHalfPressCount
-                logger(TAG, "Locked half press count to: $detectedHalfPressCount")
-            } else if (currentHalfPressCount != detectedHalfPressCount) {
-                logger(TAG, "Reset: Inconsistent press count ($currentHalfPressCount vs $detectedHalfPressCount)")
-                resetState()
-                updateState(press)
-                return false
-            }
-
-            if (currentHalf == 0) {
-                if (press != secondHalfDir) {
-                    logger(TAG, "Reset: Unexpected direction $press, expected $secondHalfDir")
-                    resetState()
-                    updateState(press)
-                    return false
-                }
-                currentHalf = 1
-                currentHalfPressCount = 1
-                logger(TAG, "Transitioned to Block $currentBlock Second Half ($press, count=1)")
-            } else {
-                if (press != firstHalfDir) {
-                    logger(TAG, "Reset: Unexpected direction $press when starting next block, expected $firstHalfDir")
-                    resetState()
-                    updateState(press)
-                    return false
-                }
-                currentBlock++
-                if (currentBlock >= 3) {
-                    triggerDuress(press)
-                    return true
-                }
-                currentHalf = 0
-                currentHalfPressCount = 1
-                logger(TAG, "Transitioned to Block $currentBlock First Half ($press, count=1)")
-            }
-        }
-
-        if (currentBlock == 2 && currentHalf == 1 && currentHalfPressCount == 1 && detectedHalfPressCount == 1) {
+        // 4. Check if duress condition met (both upCount >= 3 and downCount >= 3)
+        if (upCount >= 3 && downCount >= 3) {
             triggerDuress(press)
             return true
         }
@@ -184,15 +108,10 @@ class VolumeDuressDetector(
 
     fun resetState() {
         lastPressTime = 0L
-        lastDirection = null
-        consecutiveSameCount = 0
-        patternType = null
-        currentBlock = 0
-        currentHalf = 0
-        currentHalfPressCount = 0
-        detectedHalfPressCount = null
-        upCountInSequence = 0
-        downCountInSequence = 0
+        upCount = 0
+        downCount = 0
+        consecutiveUp = 0
+        consecutiveDown = 0
         updateState(null)
     }
 
