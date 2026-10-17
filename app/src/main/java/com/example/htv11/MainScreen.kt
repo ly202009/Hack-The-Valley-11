@@ -41,62 +41,122 @@ data class GroupMember(
     var name: String = "",
     @get:PropertyName("isOnline") @set:PropertyName("isOnline")
     var isOnline: Boolean = true,
+    var lastNudged: Long = 0L,
     var status: String = "safe"
+)
+
+data class EmergencyContact(
+    var name: String = "",
+    var phone: String = ""
 )
 
 @Composable
 fun MainGroupScreen(
     currentUserName: String = "Daniel",
     members: List<GroupMember>,
+    emergencyContacts: List<EmergencyContact> = emptyList(),
     onNudgeMember: (GroupMember) -> Unit = {},
+    onEmergencyContactClick: (EmergencyContact) -> Unit = {},
+    onAddEmergencyContactClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         // Reuse the background from RegistrationScreen
         DynamicBlueGridBackground()
 
-        Column(
+        LazyColumn(
             modifier = modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(top = 48.dp, bottom = 32.dp)
         ) {
-            Spacer(modifier = Modifier.height(48.dp))
+            // --- SECTION 1: KAZE SQUAD ---
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "KAZE SQUAD",
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Group Count: ${members.size}",
+                            fontSize = 13.sp,
+                            color = Color(0xFF8BB5E2)
+                        )
+                    }
 
-            // Header Section
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0x2200FFCC), RoundedCornerShape(20.dp))
+                            .border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(20.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = currentUserName,
+                            color = Color(0xFF00FFCC),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            items(
+                items = members,
+                key = { "squad_${it.id}" }
+            ) { member ->
+                MemberCard(
+                    member = member,
+                    isSelf = member.name.equals(currentUserName, ignoreCase = true),
+                    onNudgeClick = { onNudgeMember(member) }
+                )
+            }
+
+            // --- SECTION 2: EMERGENCY CONTACTS ---
+            item {
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Title and "+" button on the exact same line
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        text = "KAZE SQUAD",
-                        fontSize = 26.sp,
+                        text = "EMERGENCY CONTACTS",
+                        fontSize = 24.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
-                    Text(
-                        text = "Group Count: ${members.size}",
-                        fontSize = 13.sp,
-                        color = Color(0xFF8BB5E2)
-                    )
-                }
 
-                // Profile badge for the active user
-                Box(
-                    modifier = Modifier
-                        .background(Color(0x2200FFCC), RoundedCornerShape(20.dp))
-                        .border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(20.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = currentUserName,
-                        color = Color(0xFF00FFCC),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Button(
+                        onClick = onAddEmergencyContactClick,
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0x2200FFCC),
+                            contentColor = Color(0xFF00FFCC)
+                        ),
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier
+                            .size(36.dp)
+                            .border(1.dp, Color(0xFF00FFCC), CircleShape)
+                    ) {
+                        Text(
+                            text = "+",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF00FFCC)
+                        )
+                    }
                 }
-            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -126,23 +186,23 @@ fun MainGroupScreen(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Contact Count: ${emergencyContacts.size}",
+                    fontSize = 13.sp,
+                    color = Color(0xFF8BB5E2)
+                )
 
-            // Operatives List (Column)
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(bottom = 24.dp)
-            ) {
-                items(
-                    items = members,
-                    key = { it.id } // Ensures performant real-time additions/updates
-                ) { member ->
-                    MemberCard(
-                        member = member,
-                        isSelf = member.name.equals(currentUserName, ignoreCase = true),
-                        onNudgeClick = { onNudgeMember(member) }
-                    )
-                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            items(
+                items = emergencyContacts,
+                key = { "emergency_${it.name}" }
+            ) { contact ->
+                EmergencyContactCard (
+                    contact = contact,
+                    onContactClick = { onEmergencyContactClick(contact) }
+                )
             }
         }
     }
@@ -154,13 +214,25 @@ fun MemberCard(
     isSelf: Boolean,
     onNudgeClick: () -> Unit
 ) {
+    // Your own card never shows "in danger": whoever is looking at your screen must see nothing wrong.
+    val actualStatus = SafetyStatus.fromKey(member.status)
+    val status = if (isSelf && actualStatus == SafetyStatus.DANGER) SafetyStatus.SAFE else actualStatus
+    val inDanger = status == SafetyStatus.DANGER
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0x11FFFFFF), RoundedCornerShape(14.dp))
+            .background(
+                if (inDanger) SafetyStatus.DANGER.color.copy(alpha = 0.18f) else Color(0x11FFFFFF),
+                RoundedCornerShape(14.dp)
+            )
             .border(
-                width = 1.dp,
-                color = if (isSelf) Color(0xFF00FFCC) else Color(0x3300FFCC),
+                width = if (inDanger) 2.dp else 1.dp,
+                color = when {
+                    inDanger -> SafetyStatus.DANGER.color
+                    isSelf -> Color(0xFF00FFCC)
+                    else -> Color(0x3300FFCC)
+                },
                 shape = RoundedCornerShape(14.dp)
             )
             .padding(horizontal = 16.dp, vertical = 14.dp)
@@ -206,11 +278,19 @@ fun MemberCard(
                         fontWeight = FontWeight.SemiBold,
                         color = Color.White
                     )
-                    Text(
-                        text = statusText,
-                        fontSize = 12.sp,
-                        color = statusColor
-                    )
+                    Row {
+                        Text(
+                            text = status.label,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = status.color
+                        )
+                        Text(
+                            text = if (member.isOnline) " · Active Now" else " · Offline",
+                            fontSize = 12.sp,
+                            color = if (member.isOnline) Color(0xFF8BB5E2) else Color(0xFF425A77)
+                        )
+                    }
                 }
             }
 
@@ -232,6 +312,57 @@ fun MemberCard(
                         fontWeight = FontWeight.Bold
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun EmergencyContactCard(
+    contact: EmergencyContact,
+    onContactClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0x11FFFFFF), RoundedCornerShape(14.dp))
+            .border(1.dp, Color(0x3300FFCC), RoundedCornerShape(14.dp))
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text(
+                    text = contact.name,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White
+                )
+                Text(
+                    text = contact.phone.ifBlank { "No phone listed" },
+                    fontSize = 12.sp,
+                    color = Color(0xFF8BB5E2)
+                )
+            }
+
+            Button(
+                onClick = onContactClick,
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0x3300FFCC),
+                    contentColor = Color(0xFF00FFCC)
+                ),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                modifier = Modifier.border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(8.dp))
+            ) {
+                Text(
+                    text = "Contact",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
