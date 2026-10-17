@@ -32,10 +32,10 @@ import com.example.htv11.ui.theme.Htv11Theme
 
 // 1. Database-ready model: matches Firebase Realtime DB / Firestore documents
 data class GroupMember(
-    val id: String = "",
-    val name: String = "",
-    val isOnline: Boolean = true,
-    val lastNudged: Long = 0L
+    var id: String = "",
+    var name: String = "",
+    var isOnline: Boolean = true,
+    var lastNudged: Long = 0L
 )
 
 @Composable
