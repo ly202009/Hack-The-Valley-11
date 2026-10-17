@@ -70,7 +70,7 @@ fun MainGroupScreen(
                         color = Color.White
                     )
                     Text(
-                        text = "Active Operatives: ${members.size}",
+                        text = "Group Count: ${members.size}",
                         fontSize = 13.sp,
                         color = Color(0xFF8BB5E2)
                     )
