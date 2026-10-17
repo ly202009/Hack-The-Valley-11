@@ -199,26 +199,35 @@ fun DynamicBlueGridBackground() {
         val gridSpacing = 80f
         val animatedOffset = offsetProgress % gridSpacing
 
-        var x = 0f
-        while (x < size.width) {
-            drawLine(
-                color = Color(0xFF0A51A4).copy(alpha = 0.15f),
-                start = Offset(x, 0f),
-                end = Offset(x, size.height),
-                strokeWidth = 1.5f
-            )
-            x += gridSpacing
+        // Bounded loops (iteration count computed up front) instead of a `while`
+        // keyed on a running float vs size.width/height — if this Canvas is ever
+        // measured with an unbounded/infinite constraint, a `while` version of
+        // this spins forever instead of just drawing zero/garbage lines.
+        if (size.width.isFinite()) {
+            val verticalLineCount = (size.width / gridSpacing).toInt() + 1
+            for (i in 0..verticalLineCount) {
+                val x = i * gridSpacing
+                drawLine(
+                    color = Color(0xFF0A51A4).copy(alpha = 0.15f),
+                    start = Offset(x, 0f),
+                    end = Offset(x, size.height),
+                    strokeWidth = 1.5f
+                )
+            }
         }
 
-        var y = animatedOffset
-        while (y < size.height) {
-            drawLine(
-                color = Color(0xFF0E73E1).copy(alpha = 0.12f),
-                start = Offset(0f, y),
-                end = Offset(size.width, y),
-                strokeWidth = 2f
-            )
-            y += gridSpacing
+        if (size.height.isFinite()) {
+            val horizontalLineCount = (size.height / gridSpacing).toInt() + 1
+            for (i in 0..horizontalLineCount) {
+                val y = animatedOffset + i * gridSpacing
+                if (y >= size.height) break
+                drawLine(
+                    color = Color(0xFF0E73E1).copy(alpha = 0.12f),
+                    start = Offset(0f, y),
+                    end = Offset(size.width, y),
+                    strokeWidth = 2f
+                )
+            }
         }
 
         // Particle nodes

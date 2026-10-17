@@ -75,7 +75,7 @@ private const val UNDERGROUND_FILL_COLOR = "#4A4F57"
 private const val UNDERGROUND_STROKE_COLOR = "#9AA1AA"
 
 @Composable
-fun GlassBuildingMapScreen() {
+fun GlassBuildingMapScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -175,7 +175,7 @@ fun GlassBuildingMapScreen() {
     }
 
     AndroidView(
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize(),
         factory = { mapView }
     )
 }

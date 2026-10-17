@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import com.example.htv11.ui.AppTab
+import com.example.htv11.ui.GlassBuildingMapScreen
+import com.example.htv11.ui.KazeBottomBar
 import com.example.htv11.ui.theme.Htv11Theme
 import org.maplibre.android.MapLibre
 
@@ -27,6 +30,9 @@ class MainActivity : ComponentActivity() {
                 var isCheckingSession by remember { mutableStateOf(AuthManager.currentUser != null) }
                 var currentUser by remember { mutableStateOf(AuthManager.currentUser) }
 
+                // Only relevant once signed in — group view is the default landing tab.
+                var selectedTab by remember { mutableStateOf(AppTab.GROUP) }
+
                 LaunchedEffect(Unit) {
                     if (AuthManager.currentUser != null) {
                         AuthManager.verifySession { verifiedUser ->
@@ -36,7 +42,14 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    bottomBar = {
+                        if (!isCheckingSession && currentUser != null) {
+                            KazeBottomBar(selectedTab = selectedTab, onTabSelected = { selectedTab = it })
+                        }
+                    }
+                ) { innerPadding ->
                     when {
                         // 1. Brief verification check in progress: display the themed background to prevent screen flash
                         isCheckingSession -> {
@@ -109,26 +122,34 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
 
-                            MainGroupScreen(
-                                currentUserName = displayName,
-                                members = members,
-                                emergencyContacts = emergencyContacts,
-                                onNudgeMember = { member ->
-                                    UserRepository.nudgeUser(member.id, member.status)
-                                    val nextStatus = when (member.status.lowercase()) {
-                                        "safe" -> "unsure"
-                                        "unsure" -> "unsure"
-                                        "danger" -> "danger"
-                                        else -> "safe"
-                                    }
-                                    Toast.makeText(
-                                        this,
-                                        "Nudged ${member.name}! Status -> $nextStatus",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                },
-                                modifier = Modifier.padding(innerPadding)
-                            )
+                            // Group/map toggle via the bottom bar — plain window swap, no
+                            // transition. Firebase sync above keeps running either way.
+                            when (selectedTab) {
+                                AppTab.GROUP -> MainGroupScreen(
+                                    currentUserName = displayName,
+                                    members = members,
+                                    emergencyContacts = emergencyContacts,
+                                    onNudgeMember = { member ->
+                                        UserRepository.nudgeUser(member.id, member.status)
+                                        val nextStatus = when (member.status.lowercase()) {
+                                            "safe" -> "unsure"
+                                            "unsure" -> "unsure"
+                                            "danger" -> "danger"
+                                            else -> "safe"
+                                        }
+                                        Toast.makeText(
+                                            this,
+                                            "Nudged ${member.name}! Status -> $nextStatus",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    },
+                                    modifier = Modifier.padding(innerPadding)
+                                )
+
+                                AppTab.MAP -> GlassBuildingMapScreen(
+                                    modifier = Modifier.padding(innerPadding)
+                                )
+                            }
                         }
                     }
                 }
