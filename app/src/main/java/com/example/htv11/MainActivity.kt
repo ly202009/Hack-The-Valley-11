@@ -93,15 +93,25 @@ class MainActivity : ComponentActivity() {
                                     UserRepository.setOnlineStatus(activeUser.uid, false)
                                 }
                             }
+
+                            val mockEmergencyContacts = remember {
+                                listOf(
+                                    GroupMember(id = "e1", name = "Campus Security", isOnline = true),
+                                    GroupMember(id = "e2", name = "Paramedic Service", isOnline = true),
+                                    GroupMember(id = "e3", name = "Police Dispatch", isOnline = false)
+                                )
+                            }
+
                             MainGroupScreen(
                                 currentUserName = displayName,
                                 members = members,
+                                emergencyContacts = mockEmergencyContacts,
                                 onNudgeMember = { member ->
-                                    Toast.makeText(
-                                        this,
-                                        "Nudged ${member.name}!",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
+                                    UserRepository.nudgeUser(member.id)
+                                    Toast.makeText(this, "Nudged ${member.name}!", Toast.LENGTH_SHORT).show()
+                                },
+                                onEmergencyContactClick = { contact ->
+                                    Toast.makeText(this, "Contacting ${contact.name}...", Toast.LENGTH_SHORT).show()
                                 },
                                 modifier = Modifier.padding(innerPadding)
                             )

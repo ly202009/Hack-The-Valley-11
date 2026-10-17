@@ -44,74 +44,98 @@ data class GroupMember(
 fun MainGroupScreen(
     currentUserName: String = "Daniel",
     members: List<GroupMember>,
+    emergencyContacts: List<GroupMember> = emptyList(),
     onNudgeMember: (GroupMember) -> Unit = {},
+    onEmergencyContactClick: (GroupMember) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
-        // Reuse the background from RegistrationScreen
         DynamicBlueGridBackground()
 
-        Column(
+        LazyColumn(
             modifier = modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(top = 48.dp, bottom = 32.dp)
         ) {
-            Spacer(modifier = Modifier.height(48.dp))
+            // --- SECTION 1: KAZE SQUAD ---
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "KAZE SQUAD",
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Group Count: ${members.size}",
+                            fontSize = 13.sp,
+                            color = Color(0xFF8BB5E2)
+                        )
+                    }
 
-            // Header Section
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0x2200FFCC), RoundedCornerShape(20.dp))
+                            .border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(20.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = currentUserName,
+                            color = Color(0xFF00FFCC),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            items(
+                items = members,
+                key = { "squad_${it.id}" }
+            ) { member ->
+                MemberCard(
+                    member = member,
+                    isSelf = member.name.equals(currentUserName, ignoreCase = true),
+                    onNudgeClick = { onNudgeMember(member) }
+                )
+            }
+
+            // --- SECTION 2: EMERGENCY CONTACTS ---
+            item {
+                Spacer(modifier = Modifier.height(20.dp))
                 Column {
                     Text(
-                        text = "KAZE SQUAD",
-                        fontSize = 26.sp,
+                        text = "EMERGENCY CONTACTS",
+                        fontSize = 24.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
                     Text(
-                        text = "Group Count: ${members.size}",
+                        text = "Contact Count: ${emergencyContacts.size}",
                         fontSize = 13.sp,
                         color = Color(0xFF8BB5E2)
                     )
                 }
-
-                // Profile badge for the active user
-                Box(
-                    modifier = Modifier
-                        .background(Color(0x2200FFCC), RoundedCornerShape(20.dp))
-                        .border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(20.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = currentUserName,
-                        color = Color(0xFF00FFCC),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
+                Spacer(modifier = Modifier.height(8.dp))
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Operatives List (Column)
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(bottom = 24.dp)
-            ) {
-                items(
-                    items = members,
-                    key = { it.id } // Ensures performant real-time additions/updates
-                ) { member ->
-                    MemberCard(
-                        member = member,
-                        isSelf = member.name.equals(currentUserName, ignoreCase = true),
-                        onNudgeClick = { onNudgeMember(member) }
-                    )
-                }
+            items(
+                items = emergencyContacts,
+                key = { "emergency_${it.id}" }
+            ) { contact ->
+                MemberCard(
+                    member = contact,
+                    isSelf = false,
+                    onNudgeClick = { onEmergencyContactClick(contact) }
+                )
             }
         }
     }
