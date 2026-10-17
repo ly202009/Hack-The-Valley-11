@@ -24,10 +24,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -51,23 +47,20 @@ import androidx.compose.ui.unit.sp
 import com.example.htv11.ui.theme.Htv11Theme
 import kotlin.random.Random
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RegistrationScreen(
     modifier: Modifier = Modifier,
     onJoinGroup: (String) -> Unit = {}
 ) {
     var name by remember { mutableStateOf("") }
-    var isDropdownExpanded by remember { mutableStateOf(false) }
-    var selectedRole by remember { mutableStateOf("User") }
-    val roleOptions = listOf("User", "Emergency Contact")
-
     val focusManager = LocalFocusManager.current
     val scrollState = rememberScrollState()
 
     Box(modifier = Modifier.fillMaxSize()) {
+        // Dynamic cybernetic grid rendered edge-to-edge
         DynamicBlueGridBackground()
 
+        // Content Column respects system insets and software keyboard padding
         Column(
             modifier = modifier
                 .fillMaxSize()
@@ -93,6 +86,7 @@ fun RegistrationScreen(
 
             Spacer(modifier = Modifier.height(36.dp))
 
+            // Translucent futuristic glass card
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -129,64 +123,6 @@ fun RegistrationScreen(
                             }
                         )
                     )
-
-                    ExposedDropdownMenuBox(
-                        expanded = isDropdownExpanded,
-                        onExpandedChange = { isDropdownExpanded = !isDropdownExpanded },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        OutlinedTextField(
-                            value = selectedRole,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Account Type", color = Color(0xFF8BB5E2)) },
-                            trailingIcon = {
-                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = isDropdownExpanded)
-                            },
-                            singleLine = true,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .menuAnchor(),
-                            shape = MaterialTheme.shapes.medium,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White,
-                                focusedBorderColor = Color(0xFF00FFCC),
-                                unfocusedBorderColor = Color(0xFF0A51A4),
-                                focusedLabelColor = Color(0xFF00FFCC),
-                                unfocusedLabelColor = Color(0xFF8BB5E2),
-                                focusedTrailingIconColor = Color(0xFF00FFCC),
-                                unfocusedTrailingIconColor = Color(0xFF8BB5E2)
-                            )
-                        )
-
-                        ExposedDropdownMenu(
-                            expanded = isDropdownExpanded,
-                            onDismissRequest = { isDropdownExpanded = false },
-                            modifier = Modifier
-                                .background(Color(0xFF051C3B))
-                                .border(1.dp, Color(0x4400FFCC), RoundedCornerShape(8.dp))
-                        ) {
-                            roleOptions.forEach { role ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = role,
-                                            color = if (role == selectedRole) Color(0xFF00FFCC) else Color.White,
-                                            fontWeight = if (role == selectedRole) FontWeight.Bold else FontWeight.Normal
-                                        )
-                                    },
-                                    onClick = {
-                                        selectedRole = role
-                                        isDropdownExpanded = false
-                                    },
-                                    modifier = Modifier.background(
-                                        if (role == selectedRole) Color(0x2200FFCC) else Color.Transparent
-                                    )
-                                )
-                            }
-                        }
-                    }
 
                     Button(
                         onClick = {
@@ -248,6 +184,7 @@ fun DynamicBlueGridBackground() {
     }
 
     Canvas(modifier = Modifier.fillMaxSize()) {
+        // Deep background gradient
         drawRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
@@ -258,6 +195,7 @@ fun DynamicBlueGridBackground() {
             )
         )
 
+        // Animated grid lines
         val gridSpacing = 80f
         val animatedOffset = offsetProgress % gridSpacing
 
@@ -283,6 +221,7 @@ fun DynamicBlueGridBackground() {
             y += gridSpacing
         }
 
+        // Particle nodes
         particles.forEach { (positionRatio, sizeMultiplier) ->
             val particleX = positionRatio.x * size.width
             val particleY = positionRatio.y * size.height
