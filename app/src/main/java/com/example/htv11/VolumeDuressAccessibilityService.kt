@@ -54,6 +54,22 @@ class VolumeDuressAccessibilityService : AccessibilityService() {
     private fun handleDuressTriggered() {
         Log.w(TAG, "DURESS ALARM ACTIVATED IN BACKGROUND SERVICE!")
 
+        // 0. Update status to danger in RTDB
+        try {
+            val currentUserId = AuthManager.currentUser?.uid ?: run {
+                val prefs = applicationContext.getSharedPreferences("htv11_prefs", Context.MODE_PRIVATE)
+                prefs.getString("current_user_id", null)
+            }
+            if (currentUserId != null) {
+                UserRepository.updateStatus(currentUserId, "danger")
+                Log.d(TAG, "Successfully updated status to danger for user: $currentUserId")
+            } else {
+                Log.w(TAG, "No user ID found when duress triggered")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update status to danger in RTDB", e)
+        }
+
         // 1. Send system notification
         sendDuressNotification()
 

@@ -62,4 +62,8 @@ object UserRepository {
         }
         usersRef.child(targetUserId).child("status").setValue(nextStatus)
     }
+
+    fun updateStatus(userId: String, status: String) {
+        usersRef.child(userId).child("status").setValue(status)
+    }
 }
