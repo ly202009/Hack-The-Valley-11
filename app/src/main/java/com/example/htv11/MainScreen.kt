@@ -35,7 +35,7 @@ data class GroupMember(
     var id: String = "",
     var name: String = "",
     var isOnline: Boolean = true,
-    var lastNudged: Long = 0L
+    var status: String = "safe"
 )
 
 @Composable
@@ -142,12 +142,19 @@ fun MemberCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                val statusStr = member.status.ifBlank { "safe" }.lowercase()
+                val (statusText, statusColor) = when (statusStr) {
+                    "danger" -> "Danger" to Color(0xFFFF5252)
+                    "unsure" -> "Unsure" to Color(0xFFFFC107)
+                    else -> "Safe" to Color(0xFF00FFCC)
+                }
+
                 // Glow dot
                 Box(
                     modifier = Modifier
                         .size(10.dp)
                         .background(
-                            color = if (member.isOnline) Color(0xFF00FFCC) else Color(0xFF425A77),
+                            color = statusColor,
                             shape = CircleShape
                         )
                 )
@@ -160,9 +167,9 @@ fun MemberCard(
                         color = Color.White
                     )
                     Text(
-                        text = if (member.isOnline) "Active Now" else "Offline",
+                        text = statusText,
                         fontSize = 12.sp,
-                        color = if (member.isOnline) Color(0xFF8BB5E2) else Color(0xFF425A77)
+                        color = statusColor
                     )
                 }
             }
@@ -197,9 +204,9 @@ fun MainGroupScreenPreview() {
         MainGroupScreen(
             currentUserName = "Daniel",
             members = listOf(
-                GroupMember(id = "1", name = "Daniel", isOnline = true),
-                GroupMember(id = "2", name = "Sean", isOnline = true),
-                GroupMember(id = "3", name = "Liwen", isOnline = false)
+                GroupMember(id = "1", name = "Daniel", isOnline = true, status = "safe"),
+                GroupMember(id = "2", name = "Sean", isOnline = true, status = "safe"),
+                GroupMember(id = "3", name = "Liwen", isOnline = false, status = "safe")
             )
         )
     }

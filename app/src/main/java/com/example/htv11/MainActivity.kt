@@ -79,7 +79,7 @@ class MainActivity : ComponentActivity() {
                                     id = activeUser.uid,
                                     name = displayName,
                                     isOnline = true,
-                                    lastNudged = 0L
+                                    status = "safe"
                                 )
                                 UserRepository.saveUser(self)
                                 UserRepository.setOnlineStatus(activeUser.uid, true)
@@ -97,9 +97,16 @@ class MainActivity : ComponentActivity() {
                                 currentUserName = displayName,
                                 members = members,
                                 onNudgeMember = { member ->
+                                    UserRepository.nudgeUser(member.id, member.status)
+                                    val nextStatus = when (member.status.lowercase()) {
+                                        "safe" -> "unsure"
+                                        "unsure" -> "unsure"
+                                        "danger" -> "danger"
+                                        else -> "safe"
+                                    }
                                     Toast.makeText(
                                         this,
-                                        "Nudged ${member.name}!",
+                                        "Nudged ${member.name}! Status -> $nextStatus",
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 },
