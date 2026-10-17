@@ -53,7 +53,13 @@ object UserRepository {
         usersRef.removeEventListener(listener)
     }
 
-    fun nudgeUser(targetUserId: String) {
-        usersRef.child(targetUserId).child("lastNudged").setValue(System.currentTimeMillis())
+    fun nudgeUser(targetUserId: String, currentStatus: String) {
+        val nextStatus = when (currentStatus.lowercase()) {
+            "safe" -> "unsure"
+            "unsure" -> "unsure"
+            "danger" -> "danger"
+            else -> "safe"
+        }
+        usersRef.child(targetUserId).child("status").setValue(nextStatus)
     }
 }
