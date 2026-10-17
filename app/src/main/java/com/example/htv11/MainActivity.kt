@@ -93,10 +93,33 @@ class MainActivity : ComponentActivity() {
                                     UserRepository.setOnlineStatus(activeUser.uid, false)
                                 }
                             }
+                            var handledNudge by remember { mutableStateOf(PinStore.lastHandledNudge(this)) }
+                            val myNudge = members.firstOrNull { it.id == activeUser.uid }?.lastNudged ?: 0L
+
+                            if (myNudge > handledNudge) {
+                                NudgePinDialog(
+                                    onSubmit = { pin ->
+                                        // Both valid PINs close the dialog identically; only the stored status differs.
+                                        val status = when (PinStore.check(pin)) {
+                                            PinResult.NORMAL -> SafetyStatus.SAFE
+                                            PinResult.DURESS -> SafetyStatus.DANGER
+                                            PinResult.WRONG -> null
+                                        }
+                                        if (status != null) {
+                                            UserRepository.setStatus(activeUser.uid, status)
+                                            PinStore.setLastHandledNudge(this, myNudge)
+                                            handledNudge = myNudge
+                                        }
+                                        status != null
+                                    }
+                                )
+                            }
+
                             MainGroupScreen(
                                 currentUserName = displayName,
                                 members = members,
                                 onNudgeMember = { member ->
+                                    UserRepository.nudgeUser(member.id)
                                     Toast.makeText(
                                         this,
                                         "Nudged ${member.name}!",
