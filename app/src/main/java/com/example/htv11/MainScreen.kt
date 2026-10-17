@@ -52,6 +52,7 @@ fun MainGroupScreen(
     emergencyContacts: List<EmergencyContact> = emptyList(),
     onNudgeMember: (GroupMember) -> Unit = {},
     onEmergencyContactClick: (EmergencyContact) -> Unit = {},
+    onAddEmergencyContactClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
@@ -116,19 +117,47 @@ fun MainGroupScreen(
             // --- SECTION 2: EMERGENCY CONTACTS ---
             item {
                 Spacer(modifier = Modifier.height(20.dp))
-                Column {
+
+                // Title and "+" button on the exact same line
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
                         text = "EMERGENCY CONTACTS",
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
-                    Text(
-                        text = "Contact Count: ${emergencyContacts.size}",
-                        fontSize = 13.sp,
-                        color = Color(0xFF8BB5E2)
-                    )
+
+                    Button(
+                        onClick = onAddEmergencyContactClick,
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0x2200FFCC),
+                            contentColor = Color(0xFF00FFCC)
+                        ),
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier
+                            .size(36.dp)
+                            .border(1.dp, Color(0xFF00FFCC), CircleShape)
+                    ) {
+                        Text(
+                            text = "+",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF00FFCC)
+                        )
+                    }
                 }
+
+                Text(
+                    text = "Contact Count: ${emergencyContacts.size}",
+                    fontSize = 13.sp,
+                    color = Color(0xFF8BB5E2)
+                )
+
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
