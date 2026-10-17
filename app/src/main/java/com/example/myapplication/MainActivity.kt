@@ -1,6 +1,7 @@
 package com.example.myapplication
 
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -12,6 +13,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.example.myapplication.ui.theme.MyApplicationTheme
+import com.example.myapplication.ui.components.ProfileCard
+import android.widget.Toast
+import android.os.SystemClock
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -20,13 +25,36 @@ class MainActivity : ComponentActivity() {
         setContent {
             MyApplicationTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Greeting(
+                    ProfileCard(
                         name = "Android",
+                        role = "Software Developer",
                         modifier = Modifier.padding(innerPadding)
                     )
                 }
             }
         }
+    }
+
+    val distressed = false
+    val silentAlarmResetTime = 1.0f;
+//    We will be tracking the time between each keyup and keydown event,
+//    if the user spams up and down more than 3 times each, then we are distressed
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        when(keyCode){
+            KeyEvent.KEYCODE_VOLUME_UP -> {
+                Toast.makeText(this, "Volume Up Pressed", Toast.LENGTH_SHORT).show()
+                // Return true if you want to consume/block the default system volume change
+                return true
+            }
+
+            KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                Toast.makeText(this, "Volume Down Pressed", Toast.LENGTH_SHORT).show()
+                // Return true if you want to consume/block the default system volume change
+                return true
+            }
+        }
+        return super.onKeyDown(keyCode, event)
     }
 }
 
