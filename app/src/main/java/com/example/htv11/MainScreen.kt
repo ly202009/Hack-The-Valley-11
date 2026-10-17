@@ -29,14 +29,16 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.htv11.ui.theme.Htv11Theme
+import com.google.firebase.database.PropertyName
 
 // 1. Database-ready model: matches Firebase Realtime DB / Firestore documents
 data class GroupMember(
     var id: String = "",
     var name: String = "",
+    @get:PropertyName("isOnline") @set:PropertyName("isOnline")
     var isOnline: Boolean = true,
     var lastNudged: Long = 0L,
-    var status: String = SafetyStatus.UNSURE.key
+    var status: String = SafetyStatus.SAFE.key
 )
 
 @Composable
@@ -215,9 +217,9 @@ fun MainGroupScreenPreview() {
         MainGroupScreen(
             currentUserName = "Daniel",
             members = listOf(
-                GroupMember(id = "1", name = "Daniel", isOnline = true),
-                GroupMember(id = "2", name = "Sean", isOnline = true),
-                GroupMember(id = "3", name = "Liwen", isOnline = false)
+                GroupMember(id = "1", name = "Daniel", isOnline = true, status = "safe"),
+                GroupMember(id = "2", name = "Sean", isOnline = true, status = "safe"),
+                GroupMember(id = "3", name = "Liwen", isOnline = false, status = "safe")
             )
         )
     }

@@ -61,7 +61,7 @@ object UserRepository {
         val target = usersRef.child(targetUserId)
         target.child("lastNudged").setValue(System.currentTimeMillis())
 
-        // A nudge puts someone back to "unsure" until they answer, but must never hide an active danger status.
+        // A nudge puts someone to "unsure" until they answer, but must never hide an active danger status.
         target.child("status").runTransaction(object : Transaction.Handler {
             override fun doTransaction(currentData: MutableData): Transaction.Result {
                 if (currentData.getValue(String::class.java) != SafetyStatus.DANGER.key) {

@@ -79,7 +79,7 @@ class MainActivity : ComponentActivity() {
                                     id = activeUser.uid,
                                     name = displayName,
                                     isOnline = true,
-                                    lastNudged = 0L
+                                    status = "safe"
                                 )
                                 UserRepository.saveUser(self)
                                 UserRepository.setOnlineStatus(activeUser.uid, true)
@@ -93,10 +93,14 @@ class MainActivity : ComponentActivity() {
                                     UserRepository.setOnlineStatus(activeUser.uid, false)
                                 }
                             }
-                            var handledNudge by remember { mutableStateOf(PinStore.lastHandledNudge(this)) }
-                            val myNudge = members.firstOrNull { it.id == activeUser.uid }?.lastNudged ?: 0L
+                            var handledNudge by remember { mutableLongStateOf(PinStore.lastHandledNudge(this)) }
+                            val myMember = members.firstOrNull { it.id == activeUser.uid }
+                            val myNudge = myMember?.lastNudged ?: 0L
+                            val myStatus = SafetyStatus.fromKey(myMember?.status)
 
-                            if (myNudge > handledNudge) {
+                            val shouldShowPinPrompt = (myStatus == SafetyStatus.UNSURE) || (myNudge > handledNudge)
+
+                            if (shouldShowPinPrompt) {
                                 NudgePinDialog(
                                     onSubmit = { pin ->
                                         // Both valid PINs close the dialog identically; only the stored status differs.
@@ -107,8 +111,10 @@ class MainActivity : ComponentActivity() {
                                         }
                                         if (status != null) {
                                             UserRepository.setStatus(activeUser.uid, status)
-                                            PinStore.setLastHandledNudge(this, myNudge)
-                                            handledNudge = myNudge
+                                            if (myNudge > 0L) {
+                                                PinStore.setLastHandledNudge(this, myNudge)
+                                                handledNudge = myNudge
+                                            }
                                         }
                                         status != null
                                     }
