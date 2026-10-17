@@ -37,6 +37,7 @@ data class GroupMember(
     var name: String = "",
     @get:PropertyName("isOnline") @set:PropertyName("isOnline")
     var isOnline: Boolean = true,
+    var lastNudged: Long = 0L,
     var status: String = "safe"
 )
 
@@ -56,6 +57,7 @@ fun MainGroupScreen(
     modifier: Modifier = Modifier
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
+        // Reuse the background from RegistrationScreen
         DynamicBlueGridBackground()
 
         LazyColumn(
@@ -180,13 +182,25 @@ fun MemberCard(
     isSelf: Boolean,
     onNudgeClick: () -> Unit
 ) {
+    // Your own card never shows "in danger": whoever is looking at your screen must see nothing wrong.
+    val actualStatus = SafetyStatus.fromKey(member.status)
+    val status = if (isSelf && actualStatus == SafetyStatus.DANGER) SafetyStatus.SAFE else actualStatus
+    val inDanger = status == SafetyStatus.DANGER
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0x11FFFFFF), RoundedCornerShape(14.dp))
+            .background(
+                if (inDanger) SafetyStatus.DANGER.color.copy(alpha = 0.18f) else Color(0x11FFFFFF),
+                RoundedCornerShape(14.dp)
+            )
             .border(
-                width = 1.dp,
-                color = if (isSelf) Color(0xFF00FFCC) else Color(0x3300FFCC),
+                width = if (inDanger) 2.dp else 1.dp,
+                color = when {
+                    inDanger -> SafetyStatus.DANGER.color
+                    isSelf -> Color(0xFF00FFCC)
+                    else -> Color(0x3300FFCC)
+                },
                 shape = RoundedCornerShape(14.dp)
             )
             .padding(horizontal = 16.dp, vertical = 14.dp)
@@ -225,11 +239,19 @@ fun MemberCard(
                         fontWeight = FontWeight.SemiBold,
                         color = Color.White
                     )
-                    Text(
-                        text = statusText,
-                        fontSize = 12.sp,
-                        color = statusColor
-                    )
+                    Row {
+                        Text(
+                            text = status.label,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = status.color
+                        )
+                        Text(
+                            text = if (member.isOnline) " · Active Now" else " · Offline",
+                            fontSize = 12.sp,
+                            color = if (member.isOnline) Color(0xFF8BB5E2) else Color(0xFF425A77)
+                        )
+                    }
                 }
             }
 

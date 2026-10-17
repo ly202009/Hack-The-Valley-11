@@ -93,6 +93,33 @@ class MainActivity : ComponentActivity() {
                                     UserRepository.setOnlineStatus(activeUser.uid, false)
                                 }
                             }
+                            var handledNudge by remember { mutableLongStateOf(PinStore.lastHandledNudge(this)) }
+                            val myMember = members.firstOrNull { it.id == activeUser.uid }
+                            val myNudge = myMember?.lastNudged ?: 0L
+                            val myStatus = SafetyStatus.fromKey(myMember?.status)
+
+                            val shouldShowPinPrompt = (myStatus == SafetyStatus.UNSURE) || (myNudge > handledNudge)
+
+                            if (shouldShowPinPrompt) {
+                                NudgePinDialog(
+                                    onSubmit = { pin ->
+                                        // Both valid PINs close the dialog identically; only the stored status differs.
+                                        val status = when (PinStore.check(pin)) {
+                                            PinResult.NORMAL -> SafetyStatus.SAFE
+                                            PinResult.DURESS -> SafetyStatus.DANGER
+                                            PinResult.WRONG -> null
+                                        }
+                                        if (status != null) {
+                                            UserRepository.setStatus(activeUser.uid, status)
+                                            if (myNudge > 0L) {
+                                                PinStore.setLastHandledNudge(this, myNudge)
+                                                handledNudge = myNudge
+                                            }
+                                        }
+                                        status != null
+                                    }
+                                )
+                            }
 
                             var emergencyContacts by remember { mutableStateOf<List<EmergencyContact>>(emptyList()) }
 
@@ -112,7 +139,7 @@ class MainActivity : ComponentActivity() {
                                 members = members,
                                 emergencyContacts = emergencyContacts,
                                 onNudgeMember = { member ->
-                                    UserRepository.nudgeUser(member.id, member.status)
+                                    UserRepository.nudgeUser(member.id)
                                     val nextStatus = when (member.status.lowercase()) {
                                         "safe" -> "unsure"
                                         "unsure" -> "unsure"
