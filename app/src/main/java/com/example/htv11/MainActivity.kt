@@ -24,6 +24,7 @@ class MainActivity : ComponentActivity() {
                 // If there's a cached user, we need to verify them before displaying the main screen
                 var isCheckingSession by remember { mutableStateOf(AuthManager.currentUser != null) }
                 var currentUser by remember { mutableStateOf(AuthManager.currentUser) }
+                var showBleDebug by remember { mutableStateOf(false) }
 
                 LaunchedEffect(Unit) {
                     if (AuthManager.currentUser != null) {
@@ -43,12 +44,23 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        // 2. No session or user deleted on Firebase: show registration
+                        // 2. BLE Debugger page requested from sign-in screen
+                        showBleDebug -> {
+                            BluetoothDebugScreen(
+                                modifier = Modifier
+                                    .padding(innerPadding)
+                                    .imePadding(),
+                                onBack = { showBleDebug = false }
+                            )
+                        }
+
+                        // 3. No session or user deleted on Firebase: show registration
                         currentUser == null -> {
                             RegistrationScreen(
                                 modifier = Modifier
                                     .padding(innerPadding)
                                     .imePadding(),
+                                onOpenBleDebug = { showBleDebug = true },
                                 onJoinGroup = { enteredName ->
                                     AuthManager.signInAnonymously(
                                         displayName = enteredName,
@@ -67,7 +79,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // 3. Authenticated & verified user: proceed to main group screen
+                        // 4. Authenticated & verified user: proceed to main group screen
                         else -> {
                             val activeUser = currentUser!!
                             val displayName = activeUser.displayName?.ifBlank { "Daniel" } ?: "Daniel"

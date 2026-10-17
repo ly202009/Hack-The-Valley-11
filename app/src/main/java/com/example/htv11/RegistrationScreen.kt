@@ -25,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -50,6 +51,7 @@ import kotlin.random.Random
 @Composable
 fun RegistrationScreen(
     modifier: Modifier = Modifier,
+    onOpenBleDebug: () -> Unit = {},
     onJoinGroup: (String) -> Unit = {}
 ) {
     var name by remember { mutableStateOf("") }
@@ -57,10 +59,8 @@ fun RegistrationScreen(
     val scrollState = rememberScrollState()
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Dynamic cybernetic grid rendered edge-to-edge
         DynamicBlueGridBackground()
 
-        // Content Column respects system insets and software keyboard padding
         Column(
             modifier = modifier
                 .fillMaxSize()
@@ -86,7 +86,6 @@ fun RegistrationScreen(
 
             Spacer(modifier = Modifier.height(36.dp))
 
-            // Translucent futuristic glass card
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -147,6 +146,24 @@ fun RegistrationScreen(
                             fontWeight = FontWeight.Bold
                         )
                     }
+
+                    OutlinedButton(
+                        onClick = onOpenBleDebug,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = MaterialTheme.shapes.medium,
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = Color(0xFF00FFCC)
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00FFCC))
+                    ) {
+                        Text(
+                            text = "📶 BLE Debugger",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
@@ -184,7 +201,6 @@ fun DynamicBlueGridBackground() {
     }
 
     Canvas(modifier = Modifier.fillMaxSize()) {
-        // Deep background gradient
         drawRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
@@ -195,7 +211,6 @@ fun DynamicBlueGridBackground() {
             )
         )
 
-        // Animated grid lines
         val gridSpacing = 80f
         val animatedOffset = offsetProgress % gridSpacing
 
@@ -221,7 +236,6 @@ fun DynamicBlueGridBackground() {
             y += gridSpacing
         }
 
-        // Particle nodes
         particles.forEach { (positionRatio, sizeMultiplier) ->
             val particleX = positionRatio.x * size.width
             val particleY = positionRatio.y * size.height
