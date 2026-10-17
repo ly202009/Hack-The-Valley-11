@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -133,13 +134,16 @@ fun MainGroupScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(bottom = 24.dp)
             ) {
-                items(
+                itemsIndexed(
                     items = members,
-                    key = { it.id } // Ensures performant real-time additions/updates
-                ) { member ->
+                    key = { index, member ->
+                        val uniqueId = member.id.ifBlank { member.name }
+                        if (uniqueId.isNotBlank()) uniqueId else "member_$index"
+                    }
+                ) { _, member ->
                     MemberCard(
                         member = member,
-                        isSelf = member.name.equals(currentUserName, ignoreCase = true),
+                        isSelf = member.name.equals(currentUserName, ignoreCase = true) || (member.id.isNotBlank() && member.id == AuthManager.currentUser?.uid),
                         onNudgeClick = { onNudgeMember(member) }
                     )
                 }

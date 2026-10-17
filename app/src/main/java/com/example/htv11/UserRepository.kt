@@ -46,9 +46,16 @@ object UserRepository {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val list = mutableListOf<GroupMember>()
                 for (child in snapshot.children) {
-                    val member = child.getValue(GroupMember::class.java)
-                    if (member != null) {
-                        list.add(member)
+                    try {
+                        val member = child.getValue(GroupMember::class.java)
+                        if (member != null) {
+                            if (member.id.isBlank()) {
+                                member.id = child.key ?: ""
+                            }
+                            list.add(member)
+                        }
+                    } catch (e: Exception) {
+                        println("Error parsing GroupMember snapshot: ${e.message}")
                     }
                 }
                 onUpdate(list)
@@ -68,12 +75,12 @@ object UserRepository {
     }
 
     fun nudgeUser(targetUserId: String, currentStatus: String) {
-        val nextStatus = when (currentStatus.lowercase()) {
-            "safe" -> "unsure"
-            "unsure" -> "danger"
-            else -> "safe"
+        val target = usersRef.child(targetUserId)
+        target.child("lastNudged").setValue(System.currentTimeMillis())
+
+        if (currentStatus.lowercase() == "safe") {
+            target.child("status").setValue("unsure")
         }
-        usersRef.child(targetUserId).child("status").setValue(nextStatus)
     }
 
     fun updateStatus(userId: String, status: String) {
