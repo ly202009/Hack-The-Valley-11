@@ -87,9 +87,11 @@ object UserRepository {
     }
 
     /**
-     * Leaves the group by removing the user from groups/{groupId}/members only. Never touches the
-     * user's profile or location data — those are global and outlive group membership. If this
-     * was the last remaining member, deletes the entire groups/{groupId} node (roster + tethers).
+     * Leaves the group by removing the user from groups/{groupId}/members and their own
+     * netDistance subtree. Never touches the user's profile or location data — those are global
+     * and outlive group membership. If this was the last remaining member, deletes the entire
+     * groups/{groupId} node (roster + everyone's netDistance entries, including stale reverse
+     * entries from others pointing at this user).
      */
     fun leaveGroup(groupId: String, userId: String, onResult: (Boolean) -> Unit = {}) {
         if (userId.isBlank()) {
@@ -98,6 +100,8 @@ object UserRepository {
         }
         val safeId = safeGroupId(groupId)
         val groupNodeRef = groupsRef.child(safeId)
+
+        NetDistanceRepository.clearDistances(safeId, userId)
 
         groupNodeRef.child("members").child(userId).removeValue().addOnCompleteListener {
             groupNodeRef.child("members").get().addOnCompleteListener { snapshotTask ->

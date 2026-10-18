@@ -24,6 +24,19 @@ data class GroupLocation(
     val classification: FloorClassification
 )
 
+/** Straight-line 3D distance (horizontal + vertical combined) between two synced locations. */
+fun distance3dMeters(from: GroupLocation, to: GroupLocation): Double {
+    val horizontalResult = FloatArray(1)
+    android.location.Location.distanceBetween(
+        from.latitude, from.longitude,
+        to.latitude, to.longitude,
+        horizontalResult
+    )
+    val horizontal = horizontalResult[0].toDouble()
+    val vertical = from.clampedAltitudeMeters - to.clampedAltitudeMeters
+    return kotlin.math.sqrt(horizontal * horizontal + vertical * vertical)
+}
+
 object LocationRepository {
     // Flat and global, same as users/{uid} — a location isn't scoped to any particular group.
     private val locationsRef: DatabaseReference =

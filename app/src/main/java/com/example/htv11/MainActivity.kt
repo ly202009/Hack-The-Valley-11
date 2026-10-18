@@ -281,6 +281,25 @@ class MainActivity : ComponentActivity() {
                             var safeDistanceMeters by remember { mutableStateOf(25f) }
                             var isSafeDistanceEnabled by remember { mutableStateOf(true) }
 
+                            // Everyone's synced (not live) location, used both to compute net
+                            // distance below and — same values — by the map when it's open.
+                            var groupLocations by remember { mutableStateOf<List<GroupLocation>>(emptyList()) }
+                            DisposableEffect(Unit) {
+                                val listener = LocationRepository.observeAllLocations { locations ->
+                                    groupLocations = locations
+                                }
+                                onDispose { LocationRepository.removeObserver(listener) }
+                            }
+
+                            // My own computed distance (meters) to each other current member.
+                            var netDistances by remember { mutableStateOf<Map<String, Double>>(emptyMap()) }
+                            DisposableEffect(activeUser.uid, currentGroupId) {
+                                val listener = NetDistanceRepository.observeDistances(currentGroupId, activeUser.uid) { distances ->
+                                    netDistances = distances
+                                }
+                                onDispose { NetDistanceRepository.removeObserver(currentGroupId, activeUser.uid, listener) }
+                            }
+
                             // Sync user profile (flat, global — not scoped to currentGroupId) and
                             // register membership in that group's roster.
                             DisposableEffect(activeUser.uid, currentGroupId) {
@@ -427,6 +446,23 @@ class MainActivity : ComponentActivity() {
                                         clampedAltitudeMeters = fused.clampedAltitudeMeters,
                                         classification = fused.classification
                                     )
+
+                                    // Net distance to each other current member — computed from
+                                    // already-synced locations for BOTH sides (this tick's fresh
+                                    // fix is intentionally not used for self either), so this stays
+                                    // consistent with how every other member computes their own
+                                    // reverse-direction entry from the same synced stream.
+                                    val mySyncedLocation = groupLocations.firstOrNull { it.userId == activeUser.uid }
+                                    if (mySyncedLocation != null) {
+                                        val distances = members
+                                            .filter { it.id != activeUser.uid }
+                                            .mapNotNull { member ->
+                                                groupLocations.firstOrNull { it.userId == member.id }
+                                                    ?.let { member.id to distance3dMeters(mySyncedLocation, it) }
+                                            }
+                                            .toMap()
+                                        NetDistanceRepository.pushDistances(currentGroupId, activeUser.uid, distances)
+                                    }
                                 }
                             }
 
@@ -477,6 +513,8 @@ class MainActivity : ComponentActivity() {
                                         currentUserName = displayName,
                                         groupName = currentGroupName,
                                         members = members,
+                                        netDistances = netDistances,
+                                        safeDistanceMeters = safeDistanceMeters,
                                         emergencyContacts = emergencyContacts,
                                         onEmergencyContactClick = onEmergencyContactClick,
                                         onDeleteEmergencyContactClick = { contact -> contactToDelete = contact },

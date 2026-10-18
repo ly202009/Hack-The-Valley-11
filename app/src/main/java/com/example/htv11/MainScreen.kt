@@ -57,6 +57,8 @@ fun MainGroupScreen(
     currentUserName: String = "Daniel",
     groupName: String? = null,
     members: List<GroupMember>,
+    netDistances: Map<String, Double> = emptyMap(),
+    safeDistanceMeters: Float = 25f,
     emergencyContacts: List<EmergencyContact> = emptyList(),
     onNudgeMember: (GroupMember) -> Unit = {},
     onEmergencyContactClick: (EmergencyContact) -> Unit = {},
@@ -167,6 +169,8 @@ fun MainGroupScreen(
                 MemberCard(
                     member = member,
                     isSelf = member.name.equals(currentUserName, ignoreCase = true) || (member.id.isNotBlank() && member.id == AuthManager.currentUser?.uid),
+                    netDistanceMeters = netDistances[member.id],
+                    safeDistanceMeters = safeDistanceMeters,
                     onNudgeClick = { onNudgeMember(member) }
                 )
             }
@@ -257,6 +261,8 @@ fun EmergencyContactsSection(
 fun MemberCard(
     member: GroupMember,
     isSelf: Boolean,
+    netDistanceMeters: Double? = null,
+    safeDistanceMeters: Float = 25f,
     onNudgeClick: () -> Unit
 ) {
     // Your own card never shows "in danger": whoever is looking at your screen must see nothing wrong.
@@ -320,6 +326,19 @@ fun MemberCard(
                             text = if (member.isOnline) " · Active Now" else " · Offline",
                             fontSize = 12.sp,
                             color = if (member.isOnline) Color(0xFF8BB5E2) else Color(0xFF425A77)
+                        )
+                    }
+
+                    // Bubble-distance indicator — separate concept from the status above (that's
+                    // danger/duress; this is "how far away are they right now").
+                    if (!isSelf && netDistanceMeters != null) {
+                        val withinBubble = netDistanceMeters <= safeDistanceMeters
+                        val bubbleColor = if (withinBubble) Color(0xFF00FFCC) else SafetyStatus.DANGER.color
+                        Text(
+                            text = "${if (withinBubble) "Safe" else "Unsafe"} ${netDistanceMeters.toInt()}m",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = bubbleColor
                         )
                     }
                 }
