@@ -2,11 +2,14 @@ package com.example.htv11
 
 import android.Manifest
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.text.TextUtils
@@ -46,6 +49,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -368,8 +373,55 @@ class MainActivity : ComponentActivity() {
                             val activeUser = currentUser!!
                             val displayName = activeUser.displayName?.ifBlank { "User" } ?: "User"
                             var members by remember { mutableStateOf<List<GroupMember>>(emptyList()) }
+                            var previousMemberStatuses by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
                             var isProfileLoaded by remember { mutableStateOf(false) }
                             var showLeaveGroupDialog by remember { mutableStateOf(false) }
+
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                var hasNotificationPermission by remember {
+                                    mutableStateOf(
+                                        ContextCompat.checkSelfPermission(
+                                            context,
+                                            Manifest.permission.POST_NOTIFICATIONS
+                                        ) == PackageManager.PERMISSION_GRANTED
+                                    )
+                                }
+                                val notificationPermissionLauncher = rememberLauncherForActivityResult(
+                                    ActivityResultContracts.RequestPermission()
+                                ) { granted -> hasNotificationPermission = granted }
+
+                                LaunchedEffect(Unit) {
+                                    if (!hasNotificationPermission) {
+                                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    }
+                                }
+                            }
+
+                            // Monitor squad member status changes to notify when another member goes to DANGER
+                            LaunchedEffect(members, activeUser.uid) {
+                                val currentStatuses = members.associate { it.id to it.status.lowercase() }
+
+                                members.forEach { member ->
+                                    if (member.id.isNotBlank() && member.id != activeUser.uid) {
+                                        val prevStatus = previousMemberStatuses[member.id]
+                                        val newStatus = member.status.lowercase()
+
+                                        if (newStatus == SafetyStatus.DANGER.key && prevStatus != SafetyStatus.DANGER.key && prevStatus != null) {
+                                            val memberName = member.name.ifBlank { "A squad member" }
+
+                                            DangerNotificationHelper.showDangerNotification(this@MainActivity, memberName)
+
+                                            Toast.makeText(
+                                                this@MainActivity,
+                                                "🚨 ALERT: $memberName is in DANGER!",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    }
+                                }
+
+                                previousMemberStatuses = currentStatuses
+                            }
 
                             // Group Settings page state. Safe-distance toggle is visual-only for
                             // now (grays out the slider) — no alerting/behavior wired to it yet.
@@ -785,6 +837,51 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+}
+
+object DangerNotificationHelper {
+    private const val CHANNEL_ID = "squad_danger_alerts"
+    private const val CHANNEL_NAME = "Squad Danger Alerts"
+
+    fun createNotificationChannel(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Emergency alerts when a squad member signals danger"
+                enableVibration(true)
+            }
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            notificationManager?.createNotificationChannel(channel)
+        }
+    }
+
+    fun showDangerNotification(context: Context, memberName: String) {
+        createNotificationChannel(context)
+
+        val notificationId = (System.currentTimeMillis() % 10000).toInt()
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_close)
+            .setContentTitle("🚨 SQUAD EMERGENCY ALERT")
+            .setContentText("$memberName is in DANGER!")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setAutoCancel(true)
+
+        try {
+            val notificationManager = NotificationManagerCompat.from(context)
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            ) {
+                notificationManager.notify(notificationId, builder.build())
+            }
+        } catch (e: Exception) {
+            Log.e("DangerNotification", "Error showing notification", e)
         }
     }
 }
