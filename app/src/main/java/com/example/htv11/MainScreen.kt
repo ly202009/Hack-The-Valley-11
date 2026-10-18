@@ -1,5 +1,8 @@
 package com.example.htv11
 
+import android.content.Intent
+import android.provider.Settings
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -55,13 +59,15 @@ fun MainGroupScreen(
     emergencyContacts: List<EmergencyContact> = emptyList(),
     onNudgeMember: (GroupMember) -> Unit = {},
     onEmergencyContactClick: (EmergencyContact) -> Unit = {},
+    onDeleteEmergencyContactClick: (EmergencyContact) -> Unit = {},
     onAddEmergencyContactClick: () -> Unit = {},
     onOpenGroupSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val validMembers = members.filter { it.id.isNotBlank() }.distinctBy { it.id }
+    val validMembers = members.filter { it.id.isNotBlank() && it.name.isNotBlank() }.distinctBy { it.id }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        // Reuse the background from RegistrationScreen
         DynamicBlueGridBackground()
 
         LazyColumn(
@@ -120,6 +126,32 @@ fun MainGroupScreen(
                         )
                     }
                 }
+                Spacer(modifier = Modifier.height(12.dp))
+
+                val context = LocalContext.current
+                Button(
+                    onClick = {
+                        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        context.startActivity(intent)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0x2200FFCC),
+                        contentColor = Color(0xFF00FFCC)
+                    ),
+                    border = BorderStroke(1.dp, Color(0xFF00FFCC))
+                ) {
+                    Text(
+                        text = "⚙️ Enable Silent Alarm Accessibility Service",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
@@ -129,7 +161,7 @@ fun MainGroupScreen(
             ) { member ->
                 MemberCard(
                     member = member,
-                    isSelf = member.name.equals(currentUserName, ignoreCase = true),
+                    isSelf = member.name.equals(currentUserName, ignoreCase = true) || (member.id.isNotBlank() && member.id == AuthManager.currentUser?.uid),
                     onNudgeClick = { onNudgeMember(member) }
                 )
             }
@@ -187,7 +219,8 @@ fun MainGroupScreen(
             ) { contact ->
                 EmergencyContactCard (
                     contact = contact,
-                    onContactClick = { onEmergencyContactClick(contact) }
+                    onContactClick = { onEmergencyContactClick(contact) },
+                    onDeleteClick = { onDeleteEmergencyContactClick(contact) }
                 )
             }
         }
@@ -200,13 +233,25 @@ fun MemberCard(
     isSelf: Boolean,
     onNudgeClick: () -> Unit
 ) {
+    // Your own card never shows "in danger": whoever is looking at your screen must see nothing wrong.
+    val actualStatus = SafetyStatus.fromKey(member.status)
+    val status = if (isSelf && actualStatus == SafetyStatus.DANGER) SafetyStatus.SAFE else actualStatus
+    val inDanger = status == SafetyStatus.DANGER
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0x11FFFFFF), RoundedCornerShape(14.dp))
+            .background(
+                if (inDanger) SafetyStatus.DANGER.color.copy(alpha = 0.18f) else Color(0x11FFFFFF),
+                RoundedCornerShape(14.dp)
+            )
             .border(
-                width = 1.dp,
-                color = if (isSelf) Color(0xFF00FFCC) else Color(0x3300FFCC),
+                width = if (inDanger) 2.dp else 1.dp,
+                color = when {
+                    inDanger -> SafetyStatus.DANGER.color
+                    isSelf -> Color(0xFF00FFCC)
+                    else -> Color(0x3300FFCC)
+                },
                 shape = RoundedCornerShape(14.dp)
             )
             .padding(horizontal = 16.dp, vertical = 14.dp)
@@ -221,19 +266,12 @@ fun MemberCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                val statusStr = member.status.ifBlank { "safe" }.lowercase()
-                val (statusText, statusColor) = when (statusStr) {
-                    "danger" -> "Danger" to Color(0xFFFF5252)
-                    "unsure" -> "Unsure" to Color(0xFFFFC107)
-                    else -> "Safe" to Color(0xFF00FFCC)
-                }
-
-                // Glow dot
+                // Glow dot uses status.color so it stays green (0xFF00FFCC) when status is SAFE or facade cover
                 Box(
                     modifier = Modifier
                         .size(10.dp)
                         .background(
-                            color = statusColor,
+                            color = status.color,
                             shape = CircleShape
                         )
                 )
@@ -245,11 +283,19 @@ fun MemberCard(
                         fontWeight = FontWeight.SemiBold,
                         color = Color.White
                     )
-                    Text(
-                        text = statusText,
-                        fontSize = 12.sp,
-                        color = statusColor
-                    )
+                    Row {
+                        Text(
+                            text = status.label,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = status.color
+                        )
+                        Text(
+                            text = if (member.isOnline) " · Active Now" else " · Offline",
+                            fontSize = 12.sp,
+                            color = if (member.isOnline) Color(0xFF8BB5E2) else Color(0xFF425A77)
+                        )
+                    }
                 }
             }
 
@@ -279,7 +325,8 @@ fun MemberCard(
 @Composable
 fun EmergencyContactCard(
     contact: EmergencyContact,
-    onContactClick: () -> Unit
+    onContactClick: () -> Unit,
+    onDeleteClick: () -> Unit = {}
 ) {
     Box(
         modifier = Modifier
@@ -307,21 +354,43 @@ fun EmergencyContactCard(
                 )
             }
 
-            Button(
-                onClick = onContactClick,
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0x3300FFCC),
-                    contentColor = Color(0xFF00FFCC)
-                ),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                modifier = Modifier.border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(8.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    text = "Contact",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Button(
+                    onClick = onDeleteClick,
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0x22FF5252),
+                        contentColor = Color(0xFFFF5252)
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.border(1.dp, Color(0xFFFF5252), RoundedCornerShape(8.dp))
+                ) {
+                    Text(
+                        text = "Delete",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Button(
+                    onClick = onContactClick,
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0x3300FFCC),
+                        contentColor = Color(0xFF00FFCC)
+                    ),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                    modifier = Modifier.border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(8.dp))
+                ) {
+                    Text(
+                        text = "Text",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
     }

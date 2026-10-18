@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">htv11</string>
+    <string name="accessibility_service_description">Monitors volume button presses in rapid succession to trigger duress alarm.</string>
 </resources>
