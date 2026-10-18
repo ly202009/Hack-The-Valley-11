@@ -1,5 +1,13 @@
 package com.example.htv11.ui
 
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -116,6 +124,8 @@ fun GroupSettingsScreen(
             )
 
             Spacer(modifier = Modifier.weight(1f))
+
+            ServerNudgeLengthCard()
 
             Button(
                 onClick = onLeaveGroupClick,
@@ -282,5 +292,76 @@ private fun GroupSettingsScreenPreview() {
             onClose = {},
             onLeaveGroupClick = {}
         )
+    }
+}
+
+@Composable
+private fun ServerNudgeLengthCard() {
+    var hours by remember { mutableStateOf("0") }
+    var minutes by remember { mutableStateOf("30") }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(CARD_BACKGROUND, RoundedCornerShape(14.dp))
+            .border(1.dp, CARD_BORDER, RoundedCornerShape(14.dp))
+            .padding(horizontal = 16.dp, vertical = 16.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                text = "Server Nudge Length",
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Hour Box
+                OutlinedTextField(
+                    value = hours,
+                    onValueChange = { input ->
+                        hours = input.filter { it.isDigit() }.take(2)
+                    },
+                    label = { Text("Hours", color = SECONDARY_TEXT) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = ACCENT,
+                        unfocusedBorderColor = CARD_BORDER,
+                        focusedLabelColor = ACCENT,
+                        unfocusedLabelColor = SECONDARY_TEXT,
+                        cursorColor = ACCENT
+                    )
+                )
+
+                // Minutes Box
+                OutlinedTextField(
+                    value = minutes,
+                    onValueChange = { input ->
+                        minutes = input.filter { it.isDigit() }.take(2)
+                    },
+                    label = { Text("Minutes", color = SECONDARY_TEXT) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = ACCENT,
+                        unfocusedBorderColor = CARD_BORDER,
+                        focusedLabelColor = ACCENT,
+                        unfocusedLabelColor = SECONDARY_TEXT,
+                        cursorColor = ACCENT
+                    )
+                )
+            }
+        }
     }
 }
