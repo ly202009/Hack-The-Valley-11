@@ -71,7 +71,9 @@ fun MainGroupScreen(
     netDistances: Map<String, Double> = emptyMap(),
     safeDistanceMeters: Float = 25f,
     emergencyContacts: List<EmergencyContact> = emptyList(),
+    maskedSafeUserIds: Set<String> = emptySet(),
     onNudgeMember: (GroupMember) -> Unit = {},
+    onRespondDangerMember: (GroupMember) -> Unit = {},
     onEmergencyContactClick: (EmergencyContact) -> Unit = {},
     onDeleteEmergencyContactClick: (EmergencyContact) -> Unit = {},
     onAddEmergencyContactClick: () -> Unit = {},
@@ -156,12 +158,15 @@ fun MainGroupScreen(
                 } else {
                     netDistances[member.id]
                 }
+                val isMaskedSafe = maskedSafeUserIds.contains(member.id)
                 MemberCard(
                     member = member,
                     isSelf = isSelf,
+                    isMaskedSafe = isMaskedSafe,
                     netDistanceMeters = distanceForCard,
                     safeDistanceMeters = safeDistanceMeters,
-                    onNudgeClick = { onNudgeMember(member) }
+                    onNudgeClick = { onNudgeMember(member) },
+                    onRespondDangerClick = { onRespondDangerMember(member) }
                 )
             }
 
@@ -251,9 +256,11 @@ fun EmergencyContactsSection(
 fun MemberCard(
     member: GroupMember,
     isSelf: Boolean,
+    isMaskedSafe: Boolean = false,
     netDistanceMeters: Double? = null,
     safeDistanceMeters: Float = 25f,
-    onNudgeClick: () -> Unit
+    onNudgeClick: () -> Unit,
+    onRespondDangerClick: () -> Unit = {}
 ) {
     var currentTimeMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
@@ -269,10 +276,11 @@ fun MemberCard(
         }
     }
 
-    // Your own card never shows "in danger": whoever is looking at your screen must see nothing wrong.
+    // Your own card or locally masked cards never show "in danger": whoever is looking at your screen sees "safe".
     val actualStatus = SafetyStatus.fromKey(member.status)
-    val status = if (isSelf && actualStatus == SafetyStatus.DANGER) SafetyStatus.SAFE else actualStatus
+    val status = if ((isSelf || isMaskedSafe) && actualStatus == SafetyStatus.DANGER) SafetyStatus.SAFE else actualStatus
     val inDanger = status == SafetyStatus.DANGER
+    val isRealDangerUnmasked = !isSelf && !isMaskedSafe && actualStatus == SafetyStatus.DANGER
 
     Box(
         modifier = Modifier
@@ -289,6 +297,13 @@ fun MemberCard(
                     else -> Color(0x3300FFCC)
                 },
                 shape = RoundedCornerShape(14.dp)
+            )
+            .then(
+                if (isRealDangerUnmasked) {
+                    Modifier.clickable { onRespondDangerClick() }
+                } else {
+                    Modifier
+                }
             )
             .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
@@ -420,20 +435,24 @@ fun MemberCard(
                 }
             }
 
-            // Nudge Action Button
+            // Action Button (Nudge or Respond to Danger)
             if (!isSelf) {
                 Button(
-                    onClick = onNudgeClick,
+                    onClick = if (isRealDangerUnmasked) onRespondDangerClick else onNudgeClick,
                     shape = RoundedCornerShape(8.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0x3300FFCC),
-                        contentColor = Color(0xFF00FFCC)
+                        containerColor = if (isRealDangerUnmasked) Color(0x44FF5252) else Color(0x3300FFCC),
+                        contentColor = if (isRealDangerUnmasked) Color(0xFFFF5252) else Color(0xFF00FFCC)
                     ),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                    modifier = Modifier.border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(8.dp))
+                    modifier = Modifier.border(
+                        1.dp,
+                        if (isRealDangerUnmasked) Color(0xFFFF5252) else Color(0xFF00FFCC),
+                        RoundedCornerShape(8.dp)
+                    )
                 ) {
                     Text(
-                        text = "Nudge",
+                        text = if (isRealDangerUnmasked) "Respond" else "Nudge",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
                     )

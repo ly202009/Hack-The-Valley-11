@@ -429,6 +429,9 @@ class MainActivity : ComponentActivity() {
                             var safeDistanceMeters by remember { mutableStateOf(25f) }
                             var isSafeDistanceEnabled by remember { mutableStateOf(true) }
 
+                            var respondingDangerMember by remember { mutableStateOf<GroupMember?>(null) }
+                            var maskedSafeUserIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+
                             // Everyone's synced (not live) location, used both to compute net
                             // distance below and — same values — by the map when it's open.
                             var groupLocations by remember { mutableStateOf<List<GroupLocation>>(emptyList()) }
@@ -519,6 +522,42 @@ class MainActivity : ComponentActivity() {
                                             lifecycleScope.launch {
                                                 DistressAlert.send(this@MainActivity, displayName)
                                             }
+                                        }
+                                        status != null
+                                    }
+                                )
+                            }
+
+                            // Passcode prompt when clicking to respond to another member in danger
+                            respondingDangerMember?.let { targetMember ->
+                                NudgePinDialog(
+                                    onSubmit = { pin ->
+                                        val result = PinStore.check(pin)
+                                        val status = when (result) {
+                                            PinResult.NORMAL -> SafetyStatus.SAFE
+                                            PinResult.DURESS -> SafetyStatus.DANGER
+                                            PinResult.WRONG -> null
+                                        }
+
+                                        if (status != null) {
+                                            if (result == PinResult.NORMAL) {
+                                                // Normal code: set friend back to safe
+                                                UserRepository.setStatus(targetMember.id, SafetyStatus.SAFE)
+                                                Toast.makeText(
+                                                    this@MainActivity,
+                                                    "${targetMember.name} marked safe",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            } else if (result == PinResult.DURESS) {
+                                                // Duress code: set current user to danger, send silent distress alert,
+                                                // and silently mask friend as safe on current user's local screen
+                                                UserRepository.setStatus(activeUser.uid, SafetyStatus.DANGER)
+                                                maskedSafeUserIds = maskedSafeUserIds + targetMember.id
+                                                lifecycleScope.launch {
+                                                    DistressAlert.send(this@MainActivity, displayName)
+                                                }
+                                            }
+                                            respondingDangerMember = null
                                         }
                                         status != null
                                     }
@@ -735,6 +774,7 @@ class MainActivity : ComponentActivity() {
                                         netDistances = netDistances,
                                         safeDistanceMeters = safeDistanceMeters,
                                         emergencyContacts = emergencyContacts,
+                                        maskedSafeUserIds = maskedSafeUserIds,
                                         onEmergencyContactClick = onEmergencyContactClick,
                                         onDeleteEmergencyContactClick = { contact -> contactToDelete = contact },
                                         onAddEmergencyContactClick = { showAddContact = true },
@@ -751,6 +791,9 @@ class MainActivity : ComponentActivity() {
                                                 message,
                                                 Toast.LENGTH_SHORT
                                             ).show()
+                                        },
+                                        onRespondDangerMember = { member ->
+                                            respondingDangerMember = member
                                         },
                                         onOpenGroupSettings = { showGroupSettings = true },
                                         modifier = Modifier.padding(innerPadding)
