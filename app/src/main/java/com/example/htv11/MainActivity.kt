@@ -140,15 +140,15 @@ class MainActivity : ComponentActivity() {
                                 emergencyContacts = emergencyContacts,
                                 onNudgeMember = { member ->
                                     UserRepository.nudgeUser(member.id)
-                                    val nextStatus = when (member.status.lowercase()) {
-                                        "safe" -> "unsure"
-                                        "unsure" -> "unsure"
-                                        "danger" -> "danger"
-                                        else -> "safe"
+                                    val isSafe = member.status.lowercase() == "safe"
+                                    val message = if (isSafe) {
+                                        "Nudged ${member.name}! Status set to Unsure."
+                                    } else {
+                                        "Nudged ${member.name}!"
                                     }
                                     Toast.makeText(
                                         this,
-                                        "Nudged ${member.name}! Status -> $nextStatus",
+                                        message,
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 },

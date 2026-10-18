@@ -36,9 +36,16 @@ object UserRepository {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val list = mutableListOf<GroupMember>()
                 for (child in snapshot.children) {
-                    val member = child.getValue(GroupMember::class.java)
-                    if (member != null) {
-                        list.add(member)
+                    try {
+                        val member = child.getValue(GroupMember::class.java)
+                        if (member != null) {
+                            if (member.id.isBlank()) {
+                                member.id = child.key ?: ""
+                            }
+                            list.add(member)
+                        }
+                    } catch (e: Exception) {
+                        println("Error parsing GroupMember snapshot: ${e.message}")
                     }
                 }
                 onUpdate(list)
