@@ -1,10 +1,16 @@
 package com.example.htv11
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.location.Location
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
@@ -12,10 +18,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import com.example.htv11.location.AltitudeFusion
+import com.example.htv11.location.BarometerReader
+import com.example.htv11.location.rawLocationUpdates
+import com.example.htv11.map.ElevationLookupClient
 import com.example.htv11.ui.AppTab
 import com.example.htv11.ui.GlassBuildingMapScreen
 import com.example.htv11.ui.KazeBottomBar
 import com.example.htv11.ui.theme.Htv11Theme
+import kotlinx.coroutines.launch
 import org.maplibre.android.MapLibre
 
 class MainActivity : ComponentActivity() {
@@ -122,8 +135,89 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
 
+                            // Sensor pipeline: GPS + barometer + MapTiler ground-truth elevation,
+                            // fused into a floor classification, pushed to Firebase. Lives here
+                            // (not inside GlassBuildingMapScreen) specifically so it runs the whole
+                            // time you're signed in, regardless of which tab is selected — opening
+                            // the Map tab no longer restarts the altitude-fusion startup baseline.
+                            val context = LocalContext.current
+
+                            var hasLocationPermission by remember {
+                                mutableStateOf(
+                                    ContextCompat.checkSelfPermission(
+                                        context,
+                                        Manifest.permission.ACCESS_FINE_LOCATION
+                                    ) == PackageManager.PERMISSION_GRANTED
+                                )
+                            }
+                            val locationPermissionLauncher = rememberLauncherForActivityResult(
+                                ActivityResultContracts.RequestPermission()
+                            ) { granted -> hasLocationPermission = granted }
+
+                            LaunchedEffect(Unit) {
+                                if (!hasLocationPermission) {
+                                    locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                                }
+                            }
+
+                            val barometerReader = remember { BarometerReader(context) }
+                            val elevationClient = remember { ElevationLookupClient() }
+                            val altitudeFusion = remember { AltitudeFusion() }
+
+                            LaunchedEffect(activeUser.uid, hasLocationPermission) {
+                                if (!hasLocationPermission) return@LaunchedEffect
+
+                                launch {
+                                    barometerReader.pressureReadings().collect { pressure ->
+                                        altitudeFusion.onPressureReading(pressure)
+                                    }
+                                }
+
+                                var lastLoggedLocation: Location? = null
+
+                                rawLocationUpdates(context).collect { location ->
+                                    // TEMPORARY diagnostic logging for the position-jitter investigation.
+                                    val accuracy = if (location.hasAccuracy()) location.accuracy else null
+                                    val movedMeters = lastLoggedLocation?.let { prev ->
+                                        val results = FloatArray(1)
+                                        Location.distanceBetween(
+                                            prev.latitude, prev.longitude,
+                                            location.latitude, location.longitude,
+                                            results
+                                        )
+                                        results[0]
+                                    }
+                                    Log.d(
+                                        "PositionJitter",
+                                        "lat=${location.latitude} lng=${location.longitude} " +
+                                            "accuracy=$accuracy movedMeters=$movedMeters"
+                                    )
+                                    lastLoggedLocation = location
+
+                                    val groundTruth = elevationClient.groundElevationMeters(
+                                        latitude = location.latitude,
+                                        longitude = location.longitude,
+                                        accuracyMeters = if (location.hasAccuracy()) location.accuracy else null
+                                    )
+                                    val fused = altitudeFusion.onLocationUpdate(
+                                        location = location,
+                                        groundTruthMeters = groundTruth,
+                                        hasBarometerHardware = barometerReader.hasBarometerHardware
+                                    )
+
+                                    LocationRepository.pushLocation(
+                                        userId = activeUser.uid,
+                                        latitude = location.latitude,
+                                        longitude = location.longitude,
+                                        clampedAltitudeMeters = fused.clampedAltitudeMeters,
+                                        classification = fused.classification
+                                    )
+                                }
+                            }
+
                             // Group/map toggle via the bottom bar — plain window swap, no
-                            // transition. Firebase sync above keeps running either way.
+                            // transition. Firebase sync and the sensor pipeline above keep
+                            // running either way.
                             when (selectedTab) {
                                 AppTab.GROUP -> MainGroupScreen(
                                     currentUserName = displayName,
@@ -147,7 +241,6 @@ class MainActivity : ComponentActivity() {
                                 )
 
                                 AppTab.MAP -> GlassBuildingMapScreen(
-                                    userId = activeUser.uid,
                                     modifier = Modifier.padding(innerPadding)
                                 )
                             }

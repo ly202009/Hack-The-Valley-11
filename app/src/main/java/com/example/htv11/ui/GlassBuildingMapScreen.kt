@@ -1,18 +1,12 @@
 package com.example.htv11.ui
 
-import android.Manifest
-import android.annotation.SuppressLint
 import android.content.Context
-import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color as AndroidColor
 import android.graphics.Paint
-import android.location.Location
 import android.util.Log
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -33,23 +27,11 @@ import com.example.htv11.GroupMember
 import com.example.htv11.LocationRepository
 import com.example.htv11.R
 import com.example.htv11.UserRepository
-import com.example.htv11.location.AltitudeFusion
-import com.example.htv11.location.BarometerReader
 import com.example.htv11.location.FloorClassification
 import com.example.htv11.map.DemoLocation
-import com.example.htv11.map.ElevationLookupClient
 import com.example.htv11.map.MapTilerConfig
 import com.example.htv11.map.NightPalette
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationResult
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
 import com.google.gson.JsonObject
-import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.launch
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapView
@@ -70,8 +52,6 @@ import org.maplibre.geojson.Point
 private const val TAG = "GlassBuildingMap"
 private const val BUILDING_3D_LAYER_ID = "kaze-building-3d"
 
-private const val LOCATION_UPDATE_INTERVAL_MS = 1500L
-
 private const val GHOST_SOURCE_ID = "kaze-ghost-source"
 private const val GHOST_LAYER_ID = "kaze-ghost-layer"
 private const val GHOST_ICON_GROUND_ID = "kaze-ghost-ground"
@@ -84,31 +64,18 @@ private const val UNDERGROUND_STROKE_COLOR = "#9AA1AA"
 // Same red MemberCard already uses for status == "danger" in the group list.
 private const val UNSAFE_GLOW_COLOR = "#FF5252"
 
+// Pure renderer: the GPS/barometer/altitude-fusion pipeline that produces this
+// data lives in MainActivity now (runs the whole time you're signed in,
+// regardless of which tab is selected) — this screen just reads the shared
+// Firebase state and draws it, same as it already did for everyone else's
+// markers, now including its own.
 @Composable
-fun GlassBuildingMapScreen(userId: String, modifier: Modifier = Modifier) {
+fun GlassBuildingMapScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
     val mapView = remember { MapView(context).also { it.onCreate(null) } }
     var loadedStyle by remember { mutableStateOf<Style?>(null) }
-
-    var hasLocationPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
-        )
-    }
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted -> hasLocationPermission = granted }
-
-    LaunchedEffect(Unit) {
-        if (!hasLocationPermission) {
-            permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-        }
-    }
 
     DisposableEffect(lifecycleOwner, mapView) {
         val observer = LifecycleEventObserver { _, event ->
@@ -143,67 +110,8 @@ fun GlassBuildingMapScreen(userId: String, modifier: Modifier = Modifier) {
         }
     }
 
-    val barometerReader = remember { BarometerReader(context) }
-    val elevationClient = remember { ElevationLookupClient() }
-    val altitudeFusion = remember { AltitudeFusion() }
-
-    // This device's own sensor loopback: GPS + barometer + MapTiler ground-truth
-    // elevation, fused into a floor classification, pushed to Firebase. Rendering
-    // doesn't happen here — it comes back through the group-locations listener
-    // below, same as everyone else's, so there's no special-casing to show
-    // yourself.
-    LaunchedEffect(loadedStyle, hasLocationPermission) {
-        val style = loadedStyle ?: return@LaunchedEffect
-        if (!hasLocationPermission) return@LaunchedEffect
-
-        launch {
-            barometerReader.pressureReadings().collect { pressure ->
-                altitudeFusion.onPressureReading(pressure)
-            }
-        }
-
-        var lastLoggedLocation: Location? = null
-
-        rawLocationUpdates(context).collect { location ->
-            // TEMPORARY diagnostic logging for the position-jitter investigation.
-            // Remove once we've picked and implemented a fix.
-            val accuracy = if (location.hasAccuracy()) location.accuracy else null
-            val movedMeters = lastLoggedLocation?.let { prev ->
-                val results = FloatArray(1)
-                Location.distanceBetween(prev.latitude, prev.longitude, location.latitude, location.longitude, results)
-                results[0]
-            }
-            Log.d(
-                "PositionJitter",
-                "lat=${location.latitude} lng=${location.longitude} accuracy=$accuracy movedMeters=$movedMeters"
-            )
-            lastLoggedLocation = location
-
-            val groundTruth = elevationClient.groundElevationMeters(
-                latitude = location.latitude,
-                longitude = location.longitude,
-                accuracyMeters = if (location.hasAccuracy()) location.accuracy else null
-            )
-            val fused = altitudeFusion.onLocationUpdate(
-                location = location,
-                groundTruthMeters = groundTruth,
-                hasBarometerHardware = barometerReader.hasBarometerHardware
-            )
-
-            LocationRepository.pushLocation(
-                userId = userId,
-                latitude = location.latitude,
-                longitude = location.longitude,
-                clampedAltitudeMeters = fused.clampedAltitudeMeters,
-                classification = fused.classification
-            )
-        }
-    }
-
-    // Read path: everyone's current location (ours included, via the node we
-    // just wrote to above) -> rendered as markers. Foreground-only, same as the
-    // pipeline above — the listener is torn down when this screen leaves
-    // composition, same lifecycle the GPS/barometer collection already has.
+    // Read path: everyone's current location (ours included, pushed by the
+    // pipeline in MainActivity) -> rendered as markers.
     var groupLocations by remember { mutableStateOf<List<GroupLocation>>(emptyList()) }
 
     DisposableEffect(Unit) {
@@ -329,23 +237,6 @@ private fun addBuilding3DLayer(style: Style) {
 // richer future payload), but MapLibre Android will not use it to move the icon
 // up/down on screen. The gray-out / caution-badge treatment is the actual visual
 // communication of floor state here, not vertical position.
-@SuppressLint("MissingPermission") // caller gates this behind a granted runtime permission check
-private fun rawLocationUpdates(context: Context): Flow<Location> = callbackFlow {
-    val client = LocationServices.getFusedLocationProviderClient(context)
-    val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, LOCATION_UPDATE_INTERVAL_MS)
-        .setWaitForAccurateLocation(false) // don't delay the first fix waiting for a "better" one
-        .build()
-
-    val callback = object : LocationCallback() {
-        override fun onLocationResult(result: LocationResult) {
-            result.lastLocation?.let { trySend(it) }
-        }
-    }
-
-    client.requestLocationUpdates(request, callback, null)
-    awaitClose { client.removeLocationUpdates(callback) }
-}
-
 private fun iconIdFor(classification: FloorClassification, isUnsafe: Boolean): String {
     val base = when (classification) {
         FloorClassification.CONFIDENT_GROUND -> GHOST_ICON_GROUND_ID

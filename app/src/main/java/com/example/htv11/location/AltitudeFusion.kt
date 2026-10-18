@@ -1,6 +1,9 @@
 package com.example.htv11.location
 
 import android.location.Location
+import android.util.Log
+
+private const val DEBUG_TAG = "AltitudeFusion"
 
 private const val STARTUP_BURST_WINDOW_MS = 12_000L // burst-average first ~10-15s rather than trust one fix
 private const val GOOD_VERTICAL_ACCURACY_METERS = 10f
@@ -122,6 +125,17 @@ class AltitudeFusion {
 
         // Clamp underground readings back to the ground plane for rendering.
         val clampedAltitude = if (isUnderground) groundTruthMeters else groundTruthMeters + snappedHeight
+
+        // TEMPORARY diagnostic logging for the "confident-underground while
+        // genuinely upstairs" investigation. Remove once root-caused.
+        Log.d(
+            DEBUG_TAG,
+            "rawAlt=${location.altitude} hasAltitude=${location.hasAltitude()} " +
+                "groundTruth=$groundTruthMeters gpsHeightAG=$gpsHeightAboveGround " +
+                "verticalAccuracy=$verticalAccuracy tier=$tier hasBarometer=$hasBarometerHardware " +
+                "baroHeightAG=$barometerTrackedHeight fusedHeightAG=$fusedHeightAboveGround " +
+                "snapped=$snappedHeight -> $classification (clamped=$clampedAltitude)"
+        )
 
         return FusedAltitude(classification, clampedAltitude)
     }
