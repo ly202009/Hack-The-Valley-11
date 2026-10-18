@@ -150,10 +150,11 @@ object UserRepository {
         usersRef.child(userId).child("name").setValue(name.trim())
     }
 
+    // RTDB key is "photoURL" — matches GroupMember's @PropertyName mapping in MainScreen.kt.
     /** A plain image URL, not a Firebase Storage reference — set manually via the RTDB console for now. */
     fun updatePhotoUrl(userId: String, url: String) {
         if (userId.isBlank()) return
-        usersRef.child(userId).child("photoUrl").setValue(url.trim())
+        usersRef.child(userId).child("photoURL").setValue(url.trim())
     }
 
     fun observePhotoUrl(userId: String, onUpdate: (String?) -> Unit): ValueEventListener {
@@ -165,14 +166,14 @@ object UserRepository {
             override fun onCancelled(error: DatabaseError) {}
         }
         if (userId.isNotBlank()) {
-            usersRef.child(userId).child("photoUrl").addValueEventListener(listener)
+            usersRef.child(userId).child("photoURL").addValueEventListener(listener)
         }
         return listener
     }
 
     fun removePhotoUrlObserver(userId: String, listener: ValueEventListener) {
         if (userId.isNotBlank()) {
-            usersRef.child(userId).child("photoUrl").removeEventListener(listener)
+            usersRef.child(userId).child("photoURL").removeEventListener(listener)
         }
     }
 

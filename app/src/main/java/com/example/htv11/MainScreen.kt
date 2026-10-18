@@ -44,6 +44,9 @@ data class GroupMember(
     @get:PropertyName("isOnline") @set:PropertyName("isOnline")
     var isOnline: Boolean = true,
     var status: String = "safe",
+    // RTDB field is "photoURL" (matches how it reads most naturally when typed by hand in the
+    // console) — Kotlin property stays camelCase "photoUrl" for code style, mapped explicitly.
+    @get:PropertyName("photoURL") @set:PropertyName("photoURL")
     var photoUrl: String = ""
 )
 
