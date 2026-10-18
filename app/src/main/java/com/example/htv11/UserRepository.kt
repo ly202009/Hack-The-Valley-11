@@ -124,30 +124,24 @@ object UserRepository {
             return
         }
         val userNodeRef = usersRef.child(member.id)
-        userNodeRef.child("status").get().addOnCompleteListener { task ->
-            val existingStatus = if (task.isSuccessful && task.result.exists()) {
-                task.result?.getValue(String::class.java)
-            } else null
+        val profileData = mapOf<String, Any>(
+            "id" to member.id,
+            "name" to member.name,
+            "isOnline" to member.isOnline
+        )
 
-            val profileData = mutableMapOf<String, Any>(
-                "id" to member.id,
-                "name" to member.name,
-                "isOnline" to member.isOnline
-            )
-            if (!existingStatus.isNullOrBlank()) {
-                profileData["status"] = existingStatus
-            } else if (member.status.isNotBlank()) {
-                profileData["status"] = member.status
+        userNodeRef.updateChildren(profileData).addOnCompleteListener { saveTask ->
+            if (!saveTask.isSuccessful) {
+                println("RTDB SAVE FAILED: ${saveTask.exception?.message}")
             } else {
-                profileData["status"] = SafetyStatus.SAFE.key
-            }
-
-            userNodeRef.updateChildren(profileData).addOnCompleteListener { saveTask ->
-                if (!saveTask.isSuccessful) {
-                    println("RTDB SAVE FAILED: ${saveTask.exception?.message}")
+                // Ensure default status node exists if user was never initialized before
+                userNodeRef.child("status").get().addOnCompleteListener { statusTask ->
+                    if (statusTask.isSuccessful && !statusTask.result.exists()) {
+                        userNodeRef.child("status").setValue(SafetyStatus.SAFE.key)
+                    }
                 }
-                onResult(saveTask.isSuccessful)
             }
+            onResult(saveTask.isSuccessful)
         }
     }
 
@@ -199,29 +193,37 @@ object UserRepository {
         if (targetUserId.isBlank()) return
         val statusRef = usersRef.child(targetUserId).child("status")
 
-        statusRef.get().addOnCompleteListener { task ->
-            val currentStatus = if (task.isSuccessful && task.result.exists()) {
-                task.result?.getValue(String::class.java)
-            } else null
-
-            val newStatus = when (currentStatus?.lowercase()) {
-                SafetyStatus.SAFE.key -> SafetyStatus.UNSURE.key
-                SafetyStatus.UNSURE.key -> SafetyStatus.UNSURE.key
-                SafetyStatus.DANGER.key -> SafetyStatus.DANGER.key
-                else -> SafetyStatus.SAFE.key
+        statusRef.get().addOnSuccessListener { snapshot ->
+            val currentStatus = snapshot.getValue(String::class.java)?.lowercase()
+            val newStatus = when (currentStatus) {
+                "safe"-> "unsure"
+                "unsure" -> "unsure"
+                "danger" -> "danger"
+                else -> "safe"
             }
 
             statusRef.setValue(newStatus).addOnCompleteListener { writeTask ->
                 if (!writeTask.isSuccessful) {
-                    println("RTDB NUDGE FAILED: ${writeTask.exception?.message}")
+                    println("RTDB NUDGE FAILED for users/$targetUserId/status: ${writeTask.exception?.message}")
+                } else {
+                    println("RTDB NUDGE SUCCESS: users/$targetUserId/status ($currentStatus -> $newStatus)")
                 }
             }
+        }.addOnFailureListener { e ->
+            println("RTDB NUDGE READ FAILED for users/$targetUserId/status: ${e.message}, writing UNSURE directly")
+            statusRef.setValue(SafetyStatus.UNSURE.key)
         }
     }
 
     fun setStatus(userId: String, status: SafetyStatus) {
         if (userId.isBlank()) return
-        usersRef.child(userId).child("status").setValue(status.key)
+        usersRef.child(userId).child("status").setValue(status.key).addOnCompleteListener { task ->
+            if (!task.isSuccessful) {
+                println("RTDB SET STATUS FAILED for users/$userId/status: ${task.exception?.message}")
+            } else {
+                println("RTDB SET STATUS SUCCESS: users/$userId/status = ${status.key}")
+            }
+        }
     }
 
     // Save or update an emergency contact
