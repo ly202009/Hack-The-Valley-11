@@ -34,7 +34,6 @@ import androidx.lifecycle.lifecycleScope
 import com.example.htv11.ui.theme.Htv11Theme
 import com.google.firebase.database.ValueEventListener
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.launch
 import org.maplibre.android.MapLibre
 
 class MainActivity : ComponentActivity() {
@@ -101,7 +100,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // 3. Authenticated & verified user: proceed to main group screen
+                        // 3. Authenticated & verified user: proceed to main group screen or map
                         else -> {
                             val activeUser = currentUser!!
                             val displayName = activeUser.displayName?.ifBlank { "Operative" } ?: "Operative"
@@ -231,7 +230,6 @@ class MainActivity : ComponentActivity() {
                                 var lastLoggedLocation: Location? = null
 
                                 rawLocationUpdates(context).collect { location ->
-                                    // TEMPORARY diagnostic logging for the position-jitter investigation.
                                     val accuracy = if (location.hasAccuracy()) location.accuracy else null
                                     val movedMeters = lastLoggedLocation?.let { prev ->
                                         val results = FloatArray(1)
@@ -270,35 +268,6 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
 
-                            // Group/map toggle via the bottom bar — plain window swap, no
-                            // transition. Firebase sync and the sensor pipeline above keep
-                            // running either way.
-                            when (selectedTab) {
-                                AppTab.GROUP -> MainGroupScreen(
-                                    currentUserName = displayName,
-                                    members = members,
-                                    emergencyContacts = emergencyContacts,
-                                    onNudgeMember = { member ->
-                                        UserRepository.nudgeUser(member.id, member.status)
-                                        val nextStatus = when (member.status.lowercase()) {
-                                            "safe" -> "unsure"
-                                            "unsure" -> "unsure"
-                                            "danger" -> "danger"
-                                            else -> "safe"
-                                        }
-                                        Toast.makeText(
-                                            this,
-                                            "Nudged ${member.name}! Status -> $nextStatus",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    },
-                                    modifier = Modifier.padding(innerPadding)
-                                )
-
-                                AppTab.MAP -> GlassBuildingMapScreen(
-                                    modifier = Modifier.padding(innerPadding)
-                                )
-                            }
                             var showAddContact by remember { mutableStateOf(false) }
                             var pendingContact by remember { mutableStateOf<EmergencyContact?>(null) }
                             var contactToDelete by remember { mutableStateOf<EmergencyContact?>(null) }
@@ -378,45 +347,52 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
 
-                            MainGroupScreen(
-                                currentUserName = displayName,
-                                members = members,
-                                emergencyContacts = emergencyContacts,
-                                onEmergencyContactClick = { contact ->
-                                    if (LocationHelper.hasPermission(this) && hasSmsPermission(this)) {
-                                        textContact(contact)
-                                    } else {
-                                        pendingContact = contact
-                                        alertPermissionLauncher.launch(
-                                            arrayOf(
-                                                Manifest.permission.ACCESS_FINE_LOCATION,
-                                                Manifest.permission.ACCESS_COARSE_LOCATION,
-                                                Manifest.permission.SEND_SMS
+                            // Group/map toggle via the bottom bar
+                            when (selectedTab) {
+                                AppTab.GROUP -> MainGroupScreen(
+                                    currentUserName = displayName,
+                                    members = members,
+                                    emergencyContacts = emergencyContacts,
+                                    onEmergencyContactClick = { contact ->
+                                        if (LocationHelper.hasPermission(this) && hasSmsPermission(this)) {
+                                            textContact(contact)
+                                        } else {
+                                            pendingContact = contact
+                                            alertPermissionLauncher.launch(
+                                                arrayOf(
+                                                    Manifest.permission.ACCESS_FINE_LOCATION,
+                                                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                                                    Manifest.permission.SEND_SMS
+                                                )
                                             )
-                                        )
-                                    }
-                                },
-                                onDeleteEmergencyContactClick = { contact -> contactToDelete = contact },
-                                onAddEmergencyContactClick = {
-                                    // Writing before the profile exists would create a nameless ghost user.
-                                    if (myMember != null) showAddContact = true
-                                },
-                                onNudgeMember = { member ->
-                                    UserRepository.nudgeUser(member.id)
-                                    val isSafe = member.status.lowercase() == "safe"
-                                    val message = if (isSafe) {
-                                        "Nudged ${member.name}! Status set to Unsure."
-                                    } else {
-                                        "Nudged ${member.name}!"
-                                    }
-                                    Toast.makeText(
-                                        this,
-                                        message,
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                },
-                                modifier = Modifier.padding(innerPadding)
-                            )
+                                        }
+                                    },
+                                    onDeleteEmergencyContactClick = { contact -> contactToDelete = contact },
+                                    onAddEmergencyContactClick = {
+                                        // Writing before the profile exists would create a nameless ghost user.
+                                        if (myMember != null) showAddContact = true
+                                    },
+                                    onNudgeMember = { member ->
+                                        UserRepository.nudgeUser(member.id)
+                                        val isSafe = member.status.lowercase() == "safe"
+                                        val message = if (isSafe) {
+                                            "Nudged ${member.name}! Status set to Unsure."
+                                        } else {
+                                            "Nudged ${member.name}!"
+                                        }
+                                        Toast.makeText(
+                                            this,
+                                            message,
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    },
+                                    modifier = Modifier.padding(innerPadding)
+                                )
+
+                                AppTab.MAP -> GlassBuildingMapScreen(
+                                    modifier = Modifier.padding(innerPadding)
+                                )
+                            }
                         }
                     }
                 }
