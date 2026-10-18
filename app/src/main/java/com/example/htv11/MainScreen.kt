@@ -56,6 +56,7 @@ fun MainGroupScreen(
     emergencyContacts: List<EmergencyContact> = emptyList(),
     onNudgeMember: (GroupMember) -> Unit = {},
     onEmergencyContactClick: (EmergencyContact) -> Unit = {},
+    onDeleteEmergencyContactClick: (EmergencyContact) -> Unit = {},
     onAddEmergencyContactClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -200,7 +201,8 @@ fun MainGroupScreen(
             ) { contact ->
                 EmergencyContactCard (
                     contact = contact,
-                    onContactClick = { onEmergencyContactClick(contact) }
+                    onContactClick = { onEmergencyContactClick(contact) },
+                    onDeleteClick = { onDeleteEmergencyContactClick(contact) }
                 )
             }
         }
@@ -305,7 +307,8 @@ fun MemberCard(
 @Composable
 fun EmergencyContactCard(
     contact: EmergencyContact,
-    onContactClick: () -> Unit
+    onContactClick: () -> Unit,
+    onDeleteClick: () -> Unit = {}
 ) {
     Box(
         modifier = Modifier
@@ -333,21 +336,43 @@ fun EmergencyContactCard(
                 )
             }
 
-            Button(
-                onClick = onContactClick,
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0x3300FFCC),
-                    contentColor = Color(0xFF00FFCC)
-                ),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                modifier = Modifier.border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(8.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    text = "Contact",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Button(
+                    onClick = onDeleteClick,
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0x22FF5252),
+                        contentColor = Color(0xFFFF5252)
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.border(1.dp, Color(0xFFFF5252), RoundedCornerShape(8.dp))
+                ) {
+                    Text(
+                        text = "Delete",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Button(
+                    onClick = onContactClick,
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0x3300FFCC),
+                        contentColor = Color(0xFF00FFCC)
+                    ),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                    modifier = Modifier.border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(8.dp))
+                ) {
+                    Text(
+                        text = "Text",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
     }
