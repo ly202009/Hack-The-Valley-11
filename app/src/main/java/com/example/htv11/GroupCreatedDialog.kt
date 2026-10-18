@@ -45,19 +45,19 @@ fun GroupCreatedDialog(groupId: String, onDismiss: () -> Unit) {
                         text = groupId,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF00FFCC)
+                        color = Color(0xFF0288D1)
                     )
                     Box(
                         modifier = Modifier
                             .size(32.dp)
-                            .border(1.dp, Color(0xFF00FFCC), CircleShape)
+                            .border(1.dp, Color(0xFF0288D1), CircleShape)
                             .clickable { clipboardManager.setText(AnnotatedString(groupId)) },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             painter = painterResource(R.drawable.ic_copy),
                             contentDescription = "Copy group ID",
-                            tint = Color(0xFF00FFCC),
+                            tint = Color(0xFF0288D1),
                             modifier = Modifier.size(16.dp)
                         )
                     }

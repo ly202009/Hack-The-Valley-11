@@ -4,8 +4,6 @@ import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
-import com.google.firebase.database.MutableData
-import com.google.firebase.database.Transaction
 import com.google.firebase.database.ValueEventListener
 
 object UserRepository {
@@ -101,6 +99,7 @@ object UserRepository {
         val safeId = safeGroupId(groupId)
         val groupNodeRef = groupsRef.child(safeId)
 
+        setOutsideRangeStart(userId, null)
         NetDistanceRepository.clearDistances(safeId, userId)
 
         groupNodeRef.child("members").child(userId).removeValue().addOnCompleteListener {
@@ -122,6 +121,20 @@ object UserRepository {
         }
     }
 
+    /**
+     * Marks or clears the timestamp (ms) when [userId] exited the group's safe distance bubble.
+     * Saved under users/{userId}/outsideRangeStart.
+     */
+    fun setOutsideRangeStart(userId: String, startTimeMs: Long?, onResult: (Boolean) -> Unit = {}) {
+        if (userId.isBlank()) return
+        val ref = usersRef.child(userId).child("outsideRangeStart")
+        if (startTimeMs == null) {
+            ref.removeValue().addOnCompleteListener { onResult(it.isSuccessful) }
+        } else {
+            ref.setValue(startTimeMs).addOnCompleteListener { onResult(it.isSuccessful) }
+        }
+    }
+
     // ---- Flat user profile: global, independent of group membership ----
 
     fun saveUser(member: GroupMember, onResult: (Boolean) -> Unit = {}) {
@@ -129,16 +142,23 @@ object UserRepository {
             onResult(false)
             return
         }
+        val userNodeRef = usersRef.child(member.id)
         val profileData = mapOf<String, Any>(
             "id" to member.id,
             "name" to member.name,
-            "isOnline" to member.isOnline,
-            "status" to member.status.ifBlank { "safe" }
+            "isOnline" to member.isOnline
         )
 
-        usersRef.child(member.id).updateChildren(profileData).addOnCompleteListener { saveTask ->
+        userNodeRef.updateChildren(profileData).addOnCompleteListener { saveTask ->
             if (!saveTask.isSuccessful) {
                 println("RTDB SAVE FAILED: ${saveTask.exception?.message}")
+            } else {
+                // Ensure default status node exists if user was never initialized before
+                userNodeRef.child("status").get().addOnCompleteListener { statusTask ->
+                    if (statusTask.isSuccessful && !statusTask.result.exists()) {
+                        userNodeRef.child("status").setValue(SafetyStatus.SAFE.key)
+                    }
+                }
             }
             onResult(saveTask.isSuccessful)
         }
@@ -223,24 +243,39 @@ object UserRepository {
 
     fun nudgeUser(targetUserId: String) {
         if (targetUserId.isBlank()) return
-        val target = usersRef.child(targetUserId)
+        val statusRef = usersRef.child(targetUserId).child("status")
 
-        // A nudge puts someone to "unsure" until they answer, but must never hide an active danger status.
-        target.child("status").runTransaction(object : Transaction.Handler {
-            override fun doTransaction(currentData: MutableData): Transaction.Result {
-                if (currentData.getValue(String::class.java) != SafetyStatus.DANGER.key) {
-                    currentData.value = SafetyStatus.UNSURE.key
-                }
-                return Transaction.success(currentData)
+        statusRef.get().addOnSuccessListener { snapshot ->
+            val currentStatus = snapshot.getValue(String::class.java)?.lowercase()
+            val newStatus = when (currentStatus) {
+                "safe"-> "unsure"
+                "unsure" -> "unsure"
+                "danger" -> "danger"
+                else -> "safe"
             }
 
-            override fun onComplete(error: DatabaseError?, committed: Boolean, currentData: DataSnapshot?) {}
-        })
+            statusRef.setValue(newStatus).addOnCompleteListener { writeTask ->
+                if (!writeTask.isSuccessful) {
+                    println("RTDB NUDGE FAILED for users/$targetUserId/status: ${writeTask.exception?.message}")
+                } else {
+                    println("RTDB NUDGE SUCCESS: users/$targetUserId/status ($currentStatus -> $newStatus)")
+                }
+            }
+        }.addOnFailureListener { e ->
+            println("RTDB NUDGE READ FAILED for users/$targetUserId/status: ${e.message}, writing UNSURE directly")
+            statusRef.setValue(SafetyStatus.UNSURE.key)
+        }
     }
 
     fun setStatus(userId: String, status: SafetyStatus) {
         if (userId.isBlank()) return
-        usersRef.child(userId).child("status").setValue(status.key)
+        usersRef.child(userId).child("status").setValue(status.key).addOnCompleteListener { task ->
+            if (!task.isSuccessful) {
+                println("RTDB SET STATUS FAILED for users/$userId/status: ${task.exception?.message}")
+            } else {
+                println("RTDB SET STATUS SUCCESS: users/$userId/status = ${status.key}")
+            }
+        }
     }
 
     // Save or update an emergency contact

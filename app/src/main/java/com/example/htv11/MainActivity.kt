@@ -1,33 +1,61 @@
 package com.example.htv11
 
 import android.Manifest
+import android.accessibilityservice.AccessibilityServiceInfo
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.TextUtils
 import android.util.Log
+import android.view.accessibility.AccessibilityManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.htv11.location.AltitudeFusion
 import com.example.htv11.location.BarometerReader
 import com.example.htv11.location.rawLocationUpdates
@@ -39,8 +67,44 @@ import com.example.htv11.ui.KazeBottomBar
 import com.example.htv11.ui.UserSettingsScreen
 import androidx.lifecycle.lifecycleScope
 import com.example.htv11.ui.theme.Htv11Theme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.maplibre.android.MapLibre
+
+fun isAccessibilityServiceEnabled(context: Context, serviceClass: Class<*>): Boolean {
+    val expectedComponentName = ComponentName(context, serviceClass)
+    val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
+    val enabledServices = am?.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK) ?: emptyList()
+    for (service in enabledServices) {
+        val serviceInfo = service.resolveInfo?.serviceInfo ?: continue
+        if (serviceInfo.packageName == expectedComponentName.packageName &&
+            serviceInfo.name == expectedComponentName.className) {
+            return true
+        }
+    }
+
+    try {
+        val enabledServicesSetting = Settings.Secure.getString(
+            context.contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: return false
+        val colonSplitter = TextUtils.SimpleStringSplitter(':')
+        colonSplitter.setString(enabledServicesSetting)
+        val flatExpected = expectedComponentName.flattenToString()
+        val flatShort = expectedComponentName.flattenToShortString()
+        while (colonSplitter.hasNext()) {
+            val component = colonSplitter.next()
+            if (component.equals(flatExpected, ignoreCase = true) ||
+                component.equals(flatShort, ignoreCase = true)) {
+                return true
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("AccessibilityCheck", "Error checking accessibility setting", e)
+    }
+    return false
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -50,6 +114,28 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             Htv11Theme {
+                val context = LocalContext.current
+                val lifecycleOwner = LocalLifecycleOwner.current
+
+                var isAccessibilityEnabled by remember {
+                    mutableStateOf(isAccessibilityServiceEnabled(context, VolumeDuressAccessibilityService::class.java))
+                }
+
+                DisposableEffect(lifecycleOwner) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_RESUME) {
+                            isAccessibilityEnabled = isAccessibilityServiceEnabled(
+                                context,
+                                VolumeDuressAccessibilityService::class.java
+                            )
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose {
+                        lifecycleOwner.lifecycle.removeObserver(observer)
+                    }
+                }
+
                 val prefs = remember { getSharedPreferences("htv11_prefs", MODE_PRIVATE) }
                 var isCheckingSession by remember { mutableStateOf(AuthManager.currentUser != null) }
                 var currentUser by remember { mutableStateOf(AuthManager.currentUser) }
@@ -347,14 +433,64 @@ class MainActivity : ComponentActivity() {
                             val activeUser = currentUser!!
                             val displayName = activeUser.displayName?.ifBlank { "User" } ?: "User"
                             var members by remember { mutableStateOf<List<GroupMember>>(emptyList()) }
+                            var previousMemberStatuses by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
                             var isProfileLoaded by remember { mutableStateOf(false) }
                             var showLeaveGroupDialog by remember { mutableStateOf(false) }
+
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                var hasNotificationPermission by remember {
+                                    mutableStateOf(
+                                        ContextCompat.checkSelfPermission(
+                                            context,
+                                            Manifest.permission.POST_NOTIFICATIONS
+                                        ) == PackageManager.PERMISSION_GRANTED
+                                    )
+                                }
+                                val notificationPermissionLauncher = rememberLauncherForActivityResult(
+                                    ActivityResultContracts.RequestPermission()
+                                ) { granted -> hasNotificationPermission = granted }
+
+                                LaunchedEffect(Unit) {
+                                    if (!hasNotificationPermission) {
+                                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    }
+                                }
+                            }
+
+                            // Monitor squad member status changes to notify when another member goes to DANGER
+                            LaunchedEffect(members, activeUser.uid) {
+                                val currentStatuses = members.associate { it.id to it.status.lowercase() }
+
+                                members.forEach { member ->
+                                    if (member.id.isNotBlank() && member.id != activeUser.uid) {
+                                        val prevStatus = previousMemberStatuses[member.id]
+                                        val newStatus = member.status.lowercase()
+
+                                        if (newStatus == SafetyStatus.DANGER.key && prevStatus != SafetyStatus.DANGER.key && prevStatus != null) {
+                                            val memberName = member.name.ifBlank { "A squad member" }
+
+                                            DangerNotificationHelper.showDangerNotification(this@MainActivity, memberName)
+
+                                            Toast.makeText(
+                                                this@MainActivity,
+                                                "🚨 ALERT: $memberName is in DANGER!",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    }
+                                }
+
+                                previousMemberStatuses = currentStatuses
+                            }
 
                             // Group Settings page state. Safe-distance toggle is visual-only for
                             // now (grays out the slider) — no alerting/behavior wired to it yet.
                             var showGroupSettings by remember { mutableStateOf(false) }
                             var safeDistanceMeters by remember { mutableStateOf(25f) }
                             var isSafeDistanceEnabled by remember { mutableStateOf(true) }
+
+                            var respondingDangerMember by remember { mutableStateOf<GroupMember?>(null) }
+                            var maskedSafeUserIds by remember { mutableStateOf<Set<String>>(emptySet()) }
 
                             // Everyone's synced (not live) location, used both to compute net
                             // distance below and — same values — by the map when it's open.
@@ -434,13 +570,53 @@ class MainActivity : ComponentActivity() {
                                         }
                                         if (status != null) {
                                             UserRepository.setStatus(activeUser.uid, status)
+                                            if (status == SafetyStatus.SAFE) {
+                                                // Reset outside range timestamp to fresh current time after confirming safe
+                                                UserRepository.setOutsideRangeStart(activeUser.uid, System.currentTimeMillis())
+                                            }
                                         }
                                         if (status == SafetyStatus.DANGER) {
-                                            // This dialog only ever appears after a group nudge, so we're
+                                            // This dialog only ever appears after a group nudge or timeout, so we're
                                             // always in a group here — status is already flipped above.
                                             lifecycleScope.launch {
                                                 DistressAlert.send(this@MainActivity, displayName)
                                             }
+                                        }
+                                        status != null
+                                    }
+                                )
+                            }
+
+                            // Passcode prompt when clicking to respond to another member in danger
+                            respondingDangerMember?.let { targetMember ->
+                                NudgePinDialog(
+                                    onSubmit = { pin ->
+                                        val result = PinStore.check(pin)
+                                        val status = when (result) {
+                                            PinResult.NORMAL -> SafetyStatus.SAFE
+                                            PinResult.DURESS -> SafetyStatus.DANGER
+                                            PinResult.WRONG -> null
+                                        }
+
+                                        if (status != null) {
+                                            if (result == PinResult.NORMAL) {
+                                                // Normal code: set friend back to safe
+                                                UserRepository.setStatus(targetMember.id, SafetyStatus.SAFE)
+                                                Toast.makeText(
+                                                    this@MainActivity,
+                                                    "${targetMember.name} marked safe",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            } else if (result == PinResult.DURESS) {
+                                                // Duress code: set current user to danger, send silent distress alert,
+                                                // and silently mask friend as safe on current user's local screen
+                                                UserRepository.setStatus(activeUser.uid, SafetyStatus.DANGER)
+                                                maskedSafeUserIds = maskedSafeUserIds + targetMember.id
+                                                lifecycleScope.launch {
+                                                    DistressAlert.send(this@MainActivity, displayName)
+                                                }
+                                            }
+                                            respondingDangerMember = null
                                         }
                                         status != null
                                     }
@@ -539,6 +715,74 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
 
+                            // Outside group bubble monitoring: tracks distance to other group members.
+                            // If smallest distance > safeDistanceMeters, stores start timestamp in RTDB (users/{uid}/outsideRangeStart).
+                            // If user returns within range, clears start timestamp.
+                            // If 10 minutes pass outside range, switches status to UNSURE, prompting the PIN dialog automatically.
+                            LaunchedEffect(
+                                activeUser.uid,
+                                currentGroupId,
+                                netDistances,
+                                safeDistanceMeters,
+                                isSafeDistanceEnabled,
+                                members
+                            ) {
+                                if (currentGroupId.isBlank()) return@LaunchedEffect
+
+                                val otherMembers = members.filter { it.id != activeUser.uid }
+                                val myMember = members.firstOrNull { it.id == activeUser.uid }
+
+                                if (!isSafeDistanceEnabled || otherMembers.isEmpty()) {
+                                    if (myMember?.outsideRangeStart != null) {
+                                        UserRepository.setOutsideRangeStart(activeUser.uid, null)
+                                    }
+                                    return@LaunchedEffect
+                                }
+
+                                val validDistances = otherMembers.mapNotNull { netDistances[it.id] }
+
+                                if (validDistances.isNotEmpty()) {
+                                    val minDistance = validDistances.minOrNull() ?: Double.MAX_VALUE
+                                    val isOutside = minDistance > safeDistanceMeters.toDouble()
+                                    val currentStartTime = myMember?.outsideRangeStart
+
+                                    if (isOutside) {
+                                        var startTime = currentStartTime
+                                        if (startTime == null || startTime == 0L) {
+                                            val now = System.currentTimeMillis()
+                                            startTime = now
+                                            UserRepository.setOutsideRangeStart(activeUser.uid, now)
+                                        }
+
+                                        val trackingStart = startTime
+
+                                        // Loop every second while outside range to check for 10-minute timeout
+                                        val timeoutMs = 10 * 60 * 1000L
+                                        while (isActive) {
+                                            val elapsed = System.currentTimeMillis() - trackingStart
+                                            if (elapsed >= timeoutMs) {
+                                                val currentStatus = SafetyStatus.fromKey(myMember?.status)
+                                                if (currentStatus == SafetyStatus.SAFE) {
+                                                    UserRepository.setStatus(activeUser.uid, SafetyStatus.UNSURE)
+                                                    Toast.makeText(
+                                                        this@MainActivity,
+                                                        "Outside group bubble for 10 minutes! Safety verification required.",
+                                                        Toast.LENGTH_LONG
+                                                    ).show()
+                                                }
+                                                break
+                                            }
+                                            delay(1000L)
+                                        }
+                                    } else {
+                                        // Back inside safe range -> clear timer in RTDB
+                                        if (currentStartTime != null) {
+                                            UserRepository.setOutsideRangeStart(activeUser.uid, null)
+                                        }
+                                    }
+                                }
+                            }
+
                             // Leave Group Confirmation Dialog
                             if (showLeaveGroupDialog) {
                                 AlertDialog(
@@ -589,6 +833,7 @@ class MainActivity : ComponentActivity() {
                                         netDistances = netDistances,
                                         safeDistanceMeters = safeDistanceMeters,
                                         emergencyContacts = emergencyContacts,
+                                        maskedSafeUserIds = maskedSafeUserIds,
                                         onEmergencyContactClick = onEmergencyContactClick,
                                         onDeleteEmergencyContactClick = { contact -> contactToDelete = contact },
                                         onAddEmergencyContactClick = { showAddContact = true },
@@ -606,6 +851,9 @@ class MainActivity : ComponentActivity() {
                                                 Toast.LENGTH_SHORT
                                             ).show()
                                         },
+                                        onRespondDangerMember = { member ->
+                                            respondingDangerMember = member
+                                        },
                                         onOpenGroupSettings = { showGroupSettings = true },
                                         onOpenUserSettings = { showUserSettings = true },
                                         modifier = Modifier.padding(innerPadding)
@@ -622,7 +870,121 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+
+                if (!isAccessibilityEnabled) {
+                    Dialog(
+                        onDismissRequest = { /* Non-dismissible */ },
+                        properties = DialogProperties(
+                            dismissOnBackPress = false,
+                            dismissOnClickOutside = false,
+                            usePlatformDefaultWidth = false
+                        )
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFF020B1E)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            DynamicBlueGridBackground()
+
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(24.dp)
+                                    .background(Color(0xEE051C3B), RoundedCornerShape(20.dp))
+                                    .border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(20.dp))
+                                    .padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                Text(
+                                    text = "ACCESSIBILITY ACCESS REQUIRED",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF00FFCC),
+                                    textAlign = TextAlign.Center
+                                )
+
+                                Text(
+                                    text = "KAZE Mesh requires full accessibility control for the silent volume button duress alarm to work.\n\nTo use the app, you must go to system settings and give KAZE Mesh full access.",
+                                    fontSize = 14.sp,
+                                    color = Color.White,
+                                    textAlign = TextAlign.Center
+                                )
+
+                                Button(
+                                    onClick = {
+                                        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                        }
+                                        context.startActivity(intent)
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(50.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF00E5FF),
+                                        contentColor = Color(0xFF020B1E)
+                                    )
+                                ) {
+                                    Text(
+                                        text = "Go to Settings ->",
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
+        }
+    }
+}
+
+object DangerNotificationHelper {
+    private const val CHANNEL_ID = "squad_danger_alerts"
+    private const val CHANNEL_NAME = "Squad Danger Alerts"
+
+    fun createNotificationChannel(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Emergency alerts when a squad member signals danger"
+                enableVibration(true)
+            }
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            notificationManager?.createNotificationChannel(channel)
+        }
+    }
+
+    fun showDangerNotification(context: Context, memberName: String) {
+        createNotificationChannel(context)
+
+        val notificationId = (System.currentTimeMillis() % 10000).toInt()
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_close)
+            .setContentTitle("🚨 SQUAD EMERGENCY ALERT")
+            .setContentText("$memberName is in DANGER!")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setAutoCancel(true)
+
+        try {
+            val notificationManager = NotificationManagerCompat.from(context)
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            ) {
+                notificationManager.notify(notificationId, builder.build())
+            }
+        } catch (e: Exception) {
+            Log.e("DangerNotification", "Error showing notification", e)
         }
     }
 }
