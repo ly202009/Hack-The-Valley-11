@@ -26,6 +26,7 @@ import com.example.htv11.location.rawLocationUpdates
 import com.example.htv11.map.ElevationLookupClient
 import com.example.htv11.ui.AppTab
 import com.example.htv11.ui.GlassBuildingMapScreen
+import com.example.htv11.ui.GroupSettingsScreen
 import com.example.htv11.ui.KazeBottomBar
 import com.example.htv11.ui.theme.Htv11Theme
 import kotlinx.coroutines.launch
@@ -100,6 +101,12 @@ class MainActivity : ComponentActivity() {
                             val activeUser = currentUser!!
                             val displayName = activeUser.displayName?.ifBlank { "Operative" } ?: "Operative"
                             var members by remember { mutableStateOf<List<GroupMember>>(emptyList()) }
+
+                            // Group Settings page state. Safe-distance toggle is visual-only for
+                            // now (grays out the slider) — no alerting/behavior wired to it yet.
+                            var showGroupSettings by remember { mutableStateOf(false) }
+                            var safeDistanceMeters by remember { mutableStateOf(25f) }
+                            var isSafeDistanceEnabled by remember { mutableStateOf(true) }
 
                             // Sync user profile and listen for updates from RTDB
                             DisposableEffect(activeUser.uid) {
@@ -215,34 +222,46 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
 
-                            // Group/map toggle via the bottom bar — plain window swap, no
-                            // transition. Firebase sync and the sensor pipeline above keep
-                            // running either way.
-                            when (selectedTab) {
-                                AppTab.GROUP -> MainGroupScreen(
-                                    currentUserName = displayName,
-                                    members = members,
-                                    emergencyContacts = emergencyContacts,
-                                    onNudgeMember = { member ->
-                                        UserRepository.nudgeUser(member.id, member.status)
-                                        val nextStatus = when (member.status.lowercase()) {
-                                            "safe" -> "unsure"
-                                            "unsure" -> "unsure"
-                                            "danger" -> "danger"
-                                            else -> "safe"
-                                        }
-                                        Toast.makeText(
-                                            this,
-                                            "Nudged ${member.name}! Status -> $nextStatus",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    },
+                            if (showGroupSettings) {
+                                GroupSettingsScreen(
+                                    safeDistanceMeters = safeDistanceMeters,
+                                    onSafeDistanceChange = { safeDistanceMeters = it },
+                                    isSafeDistanceEnabled = isSafeDistanceEnabled,
+                                    onToggleSafeDistanceEnabled = { isSafeDistanceEnabled = it },
+                                    onClose = { showGroupSettings = false },
                                     modifier = Modifier.padding(innerPadding)
                                 )
+                            } else {
+                                // Group/map toggle via the bottom bar — plain window swap, no
+                                // transition. Firebase sync and the sensor pipeline above keep
+                                // running either way.
+                                when (selectedTab) {
+                                    AppTab.GROUP -> MainGroupScreen(
+                                        currentUserName = displayName,
+                                        members = members,
+                                        emergencyContacts = emergencyContacts,
+                                        onNudgeMember = { member ->
+                                            UserRepository.nudgeUser(member.id, member.status)
+                                            val nextStatus = when (member.status.lowercase()) {
+                                                "safe" -> "unsure"
+                                                "unsure" -> "unsure"
+                                                "danger" -> "danger"
+                                                else -> "safe"
+                                            }
+                                            Toast.makeText(
+                                                this,
+                                                "Nudged ${member.name}! Status -> $nextStatus",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        },
+                                        onOpenGroupSettings = { showGroupSettings = true },
+                                        modifier = Modifier.padding(innerPadding)
+                                    )
 
-                                AppTab.MAP -> GlassBuildingMapScreen(
-                                    modifier = Modifier.padding(innerPadding)
-                                )
+                                    AppTab.MAP -> GlassBuildingMapScreen(
+                                        modifier = Modifier.padding(innerPadding)
+                                    )
+                                }
                             }
                         }
                     }

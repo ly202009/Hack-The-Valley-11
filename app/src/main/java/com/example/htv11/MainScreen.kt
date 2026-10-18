@@ -2,6 +2,7 @@ package com.example.htv11
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,11 +20,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -53,6 +56,7 @@ fun MainGroupScreen(
     onNudgeMember: (GroupMember) -> Unit = {},
     onEmergencyContactClick: (EmergencyContact) -> Unit = {},
     onAddEmergencyContactClick: () -> Unit = {},
+    onOpenGroupSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val validMembers = members.filter { it.id.isNotBlank() }.distinctBy { it.id }
@@ -75,12 +79,26 @@ fun MainGroupScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text(
-                            text = "KAZE SQUAD",
-                            fontSize = 26.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "KAZE SQUAD",
+                                fontSize = 26.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+
+                            Icon(
+                                painter = painterResource(R.drawable.ic_settings_cog),
+                                contentDescription = "Group settings",
+                                tint = Color.White,
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .clickable(onClick = onOpenGroupSettings)
+                            )
+                        }
                         Text(
                             text = "Group Count: ${validMembers.size}",
                             fontSize = 13.sp,
