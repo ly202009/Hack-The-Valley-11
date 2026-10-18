@@ -22,12 +22,26 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,7 +54,8 @@ data class GroupMember(
     var name: String = "",
     @get:PropertyName("isOnline") @set:PropertyName("isOnline")
     var isOnline: Boolean = true,
-    var status: String = "safe"
+    var status: String = "safe",
+    var outsideRangeStart: Long? = null
 )
 
 data class EmergencyContact(
@@ -135,10 +150,16 @@ fun MainGroupScreen(
                 items = validMembers,
                 key = { "squad_${it.id}" }
             ) { member ->
+                val isSelf = member.name.equals(currentUserName, ignoreCase = true) || (member.id.isNotBlank() && member.id == AuthManager.currentUser?.uid)
+                val distanceForCard = if (isSelf) {
+                    netDistances.values.minOrNull()
+                } else {
+                    netDistances[member.id]
+                }
                 MemberCard(
                     member = member,
-                    isSelf = member.name.equals(currentUserName, ignoreCase = true) || (member.id.isNotBlank() && member.id == AuthManager.currentUser?.uid),
-                    netDistanceMeters = netDistances[member.id],
+                    isSelf = isSelf,
+                    netDistanceMeters = distanceForCard,
                     safeDistanceMeters = safeDistanceMeters,
                     onNudgeClick = { onNudgeMember(member) }
                 )
@@ -234,6 +255,20 @@ fun MemberCard(
     safeDistanceMeters: Float = 25f,
     onNudgeClick: () -> Unit
 ) {
+    var currentTimeMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+    val outsideStart = member.outsideRangeStart
+    val isOutsideRange = netDistanceMeters != null && netDistanceMeters > safeDistanceMeters
+
+    if (isOutsideRange || (outsideStart != null && outsideStart > 0L)) {
+        LaunchedEffect(outsideStart) {
+            while (isActive) {
+                currentTimeMs = System.currentTimeMillis()
+                delay(1000L)
+            }
+        }
+    }
+
     // Your own card never shows "in danger": whoever is looking at your screen must see nothing wrong.
     val actualStatus = SafetyStatus.fromKey(member.status)
     val status = if (isSelf && actualStatus == SafetyStatus.DANGER) SafetyStatus.SAFE else actualStatus
@@ -284,31 +319,103 @@ fun MemberCard(
                         fontWeight = FontWeight.SemiBold,
                         color = Color.White
                     )
-                    Row {
+
+                    // Row 2: Status + Distance next to status (color-coded) + Online/Offline
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                         Text(
                             text = status.label,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = status.color
                         )
+
+                        // Distance right next to user's status, color-coded
+                        if (netDistanceMeters != null) {
+                            val withinBubble = netDistanceMeters <= safeDistanceMeters
+                            val distanceColor = if (withinBubble) Color(0xFF00FFCC) else SafetyStatus.DANGER.color
+
+                            Text(
+                                text = "·",
+                                fontSize = 12.sp,
+                                color = Color(0xFF8BB5E2)
+                            )
+
+                            Text(
+                                text = "${netDistanceMeters.toInt()}m",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = distanceColor
+                            )
+                        }
+
                         Text(
-                            text = if (member.isOnline) " · Active Now" else " · Offline",
+                            text = if (member.isOnline) "· Active" else "· Offline",
                             fontSize = 12.sp,
                             color = if (member.isOnline) Color(0xFF8BB5E2) else Color(0xFF425A77)
                         )
                     }
 
-                    // Bubble-distance indicator — separate concept from the status above (that's
-                    // danger/duress; this is "how far away are they right now").
-                    if (!isSelf && netDistanceMeters != null) {
-                        val withinBubble = netDistanceMeters <= safeDistanceMeters
-                        val bubbleColor = if (withinBubble) Color(0xFF00FFCC) else SafetyStatus.DANGER.color
-                        Text(
-                            text = "${if (withinBubble) "Safe" else "Unsafe"} ${netDistanceMeters.toInt()}m",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = bubbleColor
-                        )
+                    // Row 3: 10-Minute Countdown Timer when out of range
+                    if (isOutsideRange && outsideStart != null && outsideStart > 0L) {
+                        val elapsedMs = (currentTimeMs - outsideStart).coerceAtLeast(0L)
+                        val timeoutMs = 10 * 60 * 1000L
+                        val remainingMs = (timeoutMs - elapsedMs).coerceAtLeast(0L)
+                        val totalSecs = remainingMs / 1000
+                        val mins = totalSecs / 60
+                        val secs = totalSecs % 60
+                        val timeFormatted = String.format("%02d:%02d", mins, secs)
+
+                        val isTimeoutOrUnsure = remainingMs == 0L || status == SafetyStatus.UNSURE
+
+                        val flashAlpha = if (isTimeoutOrUnsure) {
+                            val infiniteTransition = rememberInfiniteTransition(label = "timerFlash")
+                            val animatedAlpha by infiniteTransition.animateFloat(
+                                initialValue = 1f,
+                                targetValue = 0.2f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(durationMillis = 500, easing = LinearEasing),
+                                    repeatMode = RepeatMode.Reverse
+                                ),
+                                label = "alpha"
+                            )
+                            animatedAlpha
+                        } else {
+                            1f
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.alpha(flashAlpha)
+                        ) {
+                            Text(
+                                text = "⚠️ Out of Range:",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFFFF5252)
+                            )
+
+                            Text(
+                                text = timeFormatted,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFFF5252)
+                            )
+
+                            if (isTimeoutOrUnsure) {
+                                Text(
+                                    text = "· UNSURE",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFFFC107)
+                                )
+                            }
+                        }
                     }
                 }
             }

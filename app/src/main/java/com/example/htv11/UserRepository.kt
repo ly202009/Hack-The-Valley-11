@@ -99,6 +99,7 @@ object UserRepository {
         val safeId = safeGroupId(groupId)
         val groupNodeRef = groupsRef.child(safeId)
 
+        setOutsideRangeStart(userId, null)
         NetDistanceRepository.clearDistances(safeId, userId)
 
         groupNodeRef.child("members").child(userId).removeValue().addOnCompleteListener {
@@ -117,6 +118,20 @@ object UserRepository {
                     onResult(true)
                 }
             }
+        }
+    }
+
+    /**
+     * Marks or clears the timestamp (ms) when [userId] exited the group's safe distance bubble.
+     * Saved under users/{userId}/outsideRangeStart.
+     */
+    fun setOutsideRangeStart(userId: String, startTimeMs: Long?, onResult: (Boolean) -> Unit = {}) {
+        if (userId.isBlank()) return
+        val ref = usersRef.child(userId).child("outsideRangeStart")
+        if (startTimeMs == null) {
+            ref.removeValue().addOnCompleteListener { onResult(it.isSuccessful) }
+        } else {
+            ref.setValue(startTimeMs).addOnCompleteListener { onResult(it.isSuccessful) }
         }
     }
 

@@ -60,6 +60,8 @@ import com.example.htv11.ui.GroupSettingsScreen
 import com.example.htv11.ui.KazeBottomBar
 import androidx.lifecycle.lifecycleScope
 import com.example.htv11.ui.theme.Htv11Theme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.maplibre.android.MapLibre
 
@@ -454,9 +456,13 @@ class MainActivity : ComponentActivity() {
                                         }
                                         if (status != null) {
                                             UserRepository.setStatus(activeUser.uid, status)
+                                            if (status == SafetyStatus.SAFE) {
+                                                // Reset outside range timestamp to fresh current time after confirming safe
+                                                UserRepository.setOutsideRangeStart(activeUser.uid, System.currentTimeMillis())
+                                            }
                                         }
                                         if (status == SafetyStatus.DANGER) {
-                                            // This dialog only ever appears after a group nudge, so we're
+                                            // This dialog only ever appears after a group nudge or timeout, so we're
                                             // always in a group here — status is already flipped above.
                                             lifecycleScope.launch {
                                                 DistressAlert.send(this@MainActivity, displayName)
@@ -555,6 +561,74 @@ class MainActivity : ComponentActivity() {
                                             }
                                             .toMap()
                                         NetDistanceRepository.pushDistances(currentGroupId, activeUser.uid, distances)
+                                    }
+                                }
+                            }
+
+                            // Outside group bubble monitoring: tracks distance to other group members.
+                            // If smallest distance > safeDistanceMeters, stores start timestamp in RTDB (users/{uid}/outsideRangeStart).
+                            // If user returns within range, clears start timestamp.
+                            // If 10 minutes pass outside range, switches status to UNSURE, prompting the PIN dialog automatically.
+                            LaunchedEffect(
+                                activeUser.uid,
+                                currentGroupId,
+                                netDistances,
+                                safeDistanceMeters,
+                                isSafeDistanceEnabled,
+                                members
+                            ) {
+                                if (currentGroupId.isBlank()) return@LaunchedEffect
+
+                                val otherMembers = members.filter { it.id != activeUser.uid }
+                                val myMember = members.firstOrNull { it.id == activeUser.uid }
+
+                                if (!isSafeDistanceEnabled || otherMembers.isEmpty()) {
+                                    if (myMember?.outsideRangeStart != null) {
+                                        UserRepository.setOutsideRangeStart(activeUser.uid, null)
+                                    }
+                                    return@LaunchedEffect
+                                }
+
+                                val validDistances = otherMembers.mapNotNull { netDistances[it.id] }
+
+                                if (validDistances.isNotEmpty()) {
+                                    val minDistance = validDistances.minOrNull() ?: Double.MAX_VALUE
+                                    val isOutside = minDistance > safeDistanceMeters.toDouble()
+                                    val currentStartTime = myMember?.outsideRangeStart
+
+                                    if (isOutside) {
+                                        var startTime = currentStartTime
+                                        if (startTime == null || startTime == 0L) {
+                                            val now = System.currentTimeMillis()
+                                            startTime = now
+                                            UserRepository.setOutsideRangeStart(activeUser.uid, now)
+                                        }
+
+                                        val trackingStart = startTime
+
+                                        // Loop every second while outside range to check for 10-minute timeout
+                                        val timeoutMs = 10 * 60 * 1000L
+                                        while (isActive) {
+                                            val elapsed = System.currentTimeMillis() - trackingStart
+                                            if (elapsed >= timeoutMs) {
+                                                val currentStatus = SafetyStatus.fromKey(myMember?.status)
+                                                if (currentStatus == SafetyStatus.SAFE) {
+                                                    UserRepository.setStatus(activeUser.uid, SafetyStatus.UNSURE)
+                                                    Toast.makeText(
+                                                        this@MainActivity,
+                                                        "Outside group bubble for 10 minutes! Safety verification required.",
+                                                        Toast.LENGTH_LONG
+                                                    ).show()
+                                                }
+                                                break
+                                            }
+                                            delay(1000L)
+                                        }
+                                    } else {
+                                        // Back inside safe range -> clear timer in RTDB
+                                        if (currentStartTime != null) {
+                                            UserRepository.setOutsideRangeStart(activeUser.uid, null)
+                                        }
                                     }
                                 }
                             }
