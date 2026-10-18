@@ -1,7 +1,10 @@
 package com.example.htv11
 
 import android.Manifest
+import android.content.pm.PackageManager
+import android.location.Location
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -18,14 +21,26 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import com.example.htv11.location.AltitudeFusion
+import com.example.htv11.location.BarometerReader
+import com.example.htv11.location.rawLocationUpdates
+import com.example.htv11.map.ElevationLookupClient
+import com.example.htv11.ui.AppTab
+import com.example.htv11.ui.GlassBuildingMapScreen
+import com.example.htv11.ui.KazeBottomBar
 import androidx.lifecycle.lifecycleScope
 import com.example.htv11.ui.theme.Htv11Theme
 import com.google.firebase.database.ValueEventListener
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.launch
+import org.maplibre.android.MapLibre
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        MapLibre.getInstance(this)
         enableEdgeToEdge()
 
         setContent {
@@ -33,6 +48,9 @@ class MainActivity : ComponentActivity() {
                 // If there's a cached user, we need to verify them before displaying the main screen
                 var isCheckingSession by remember { mutableStateOf(AuthManager.currentUser != null) }
                 var currentUser by remember { mutableStateOf(AuthManager.currentUser) }
+
+                // Only relevant once signed in — group view is the default landing tab.
+                var selectedTab by remember { mutableStateOf(AppTab.GROUP) }
 
                 LaunchedEffect(Unit) {
                     if (AuthManager.currentUser != null) {
@@ -43,7 +61,14 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    bottomBar = {
+                        if (!isCheckingSession && currentUser != null) {
+                            KazeBottomBar(selectedTab = selectedTab, onTabSelected = { selectedTab = it })
+                        }
+                    }
+                ) { innerPadding ->
                     when {
                         // 1. Brief verification check in progress: display the themed background to prevent screen flash
                         isCheckingSession -> {
@@ -165,6 +190,115 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
 
+                            // Sensor pipeline: GPS + barometer + MapTiler ground-truth elevation,
+                            // fused into a floor classification, pushed to Firebase. Lives here
+                            // (not inside GlassBuildingMapScreen) specifically so it runs the whole
+                            // time you're signed in, regardless of which tab is selected — opening
+                            // the Map tab no longer restarts the altitude-fusion startup baseline.
+                            val context = LocalContext.current
+
+                            var hasLocationPermission by remember {
+                                mutableStateOf(
+                                    ContextCompat.checkSelfPermission(
+                                        context,
+                                        Manifest.permission.ACCESS_FINE_LOCATION
+                                    ) == PackageManager.PERMISSION_GRANTED
+                                )
+                            }
+                            val locationPermissionLauncher = rememberLauncherForActivityResult(
+                                ActivityResultContracts.RequestPermission()
+                            ) { granted -> hasLocationPermission = granted }
+
+                            LaunchedEffect(Unit) {
+                                if (!hasLocationPermission) {
+                                    locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                                }
+                            }
+
+                            val barometerReader = remember { BarometerReader(context) }
+                            val elevationClient = remember { ElevationLookupClient() }
+                            val altitudeFusion = remember { AltitudeFusion() }
+
+                            LaunchedEffect(activeUser.uid, hasLocationPermission) {
+                                if (!hasLocationPermission) return@LaunchedEffect
+
+                                launch {
+                                    barometerReader.pressureReadings().collect { pressure ->
+                                        altitudeFusion.onPressureReading(pressure)
+                                    }
+                                }
+
+                                var lastLoggedLocation: Location? = null
+
+                                rawLocationUpdates(context).collect { location ->
+                                    // TEMPORARY diagnostic logging for the position-jitter investigation.
+                                    val accuracy = if (location.hasAccuracy()) location.accuracy else null
+                                    val movedMeters = lastLoggedLocation?.let { prev ->
+                                        val results = FloatArray(1)
+                                        Location.distanceBetween(
+                                            prev.latitude, prev.longitude,
+                                            location.latitude, location.longitude,
+                                            results
+                                        )
+                                        results[0]
+                                    }
+                                    Log.d(
+                                        "PositionJitter",
+                                        "lat=${location.latitude} lng=${location.longitude} " +
+                                            "accuracy=$accuracy movedMeters=$movedMeters"
+                                    )
+                                    lastLoggedLocation = location
+
+                                    val groundTruth = elevationClient.groundElevationMeters(
+                                        latitude = location.latitude,
+                                        longitude = location.longitude,
+                                        accuracyMeters = if (location.hasAccuracy()) location.accuracy else null
+                                    )
+                                    val fused = altitudeFusion.onLocationUpdate(
+                                        location = location,
+                                        groundTruthMeters = groundTruth,
+                                        hasBarometerHardware = barometerReader.hasBarometerHardware
+                                    )
+
+                                    LocationRepository.pushLocation(
+                                        userId = activeUser.uid,
+                                        latitude = location.latitude,
+                                        longitude = location.longitude,
+                                        clampedAltitudeMeters = fused.clampedAltitudeMeters,
+                                        classification = fused.classification
+                                    )
+                                }
+                            }
+
+                            // Group/map toggle via the bottom bar — plain window swap, no
+                            // transition. Firebase sync and the sensor pipeline above keep
+                            // running either way.
+                            when (selectedTab) {
+                                AppTab.GROUP -> MainGroupScreen(
+                                    currentUserName = displayName,
+                                    members = members,
+                                    emergencyContacts = emergencyContacts,
+                                    onNudgeMember = { member ->
+                                        UserRepository.nudgeUser(member.id, member.status)
+                                        val nextStatus = when (member.status.lowercase()) {
+                                            "safe" -> "unsure"
+                                            "unsure" -> "unsure"
+                                            "danger" -> "danger"
+                                            else -> "safe"
+                                        }
+                                        Toast.makeText(
+                                            this,
+                                            "Nudged ${member.name}! Status -> $nextStatus",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    },
+                                    modifier = Modifier.padding(innerPadding)
+                                )
+
+                                AppTab.MAP -> GlassBuildingMapScreen(
+                                    modifier = Modifier.padding(innerPadding)
+                                )
+                            }
                             var showAddContact by remember { mutableStateOf(false) }
                             var pendingContact by remember { mutableStateOf<EmergencyContact?>(null) }
                             var contactToDelete by remember { mutableStateOf<EmergencyContact?>(null) }

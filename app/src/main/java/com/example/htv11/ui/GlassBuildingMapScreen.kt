@@ -1,0 +1,391 @@
+package com.example.htv11.ui
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BlurMaskFilter
+import android.graphics.Canvas
+import android.graphics.Color as AndroidColor
+import android.graphics.Paint
+import android.util.Log
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.example.htv11.GroupLocation
+import com.example.htv11.GroupMember
+import com.example.htv11.LocationRepository
+import com.example.htv11.R
+import com.example.htv11.UserRepository
+import com.example.htv11.location.FloorClassification
+import com.example.htv11.map.DemoLocation
+import com.example.htv11.map.MapTilerConfig
+import com.example.htv11.map.NightPalette
+import com.google.gson.JsonObject
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.layers.BackgroundLayer
+import org.maplibre.android.style.layers.FillExtrusionLayer
+import org.maplibre.android.style.layers.FillLayer
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.SymbolLayer
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.android.style.sources.VectorSource
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.Point
+
+private const val TAG = "GlassBuildingMap"
+private const val BUILDING_3D_LAYER_ID = "kaze-building-3d"
+
+private const val GHOST_SOURCE_ID = "kaze-ghost-source"
+private const val GHOST_LAYER_ID = "kaze-ghost-layer"
+private const val GHOST_ICON_GROUND_ID = "kaze-ghost-ground"
+private const val GHOST_ICON_UNDERGROUND_ID = "kaze-ghost-underground"
+private const val GHOST_ICON_UNCERTAIN_ID = "kaze-ghost-uncertain"
+private const val GHOST_ICON_SIZE_PX = 120
+private const val CAUTION_BADGE_COLOR = "#FFC107"
+private const val UNDERGROUND_FILL_COLOR = "#4A4F57"
+private const val UNDERGROUND_STROKE_COLOR = "#9AA1AA"
+// Same red MemberCard already uses for status == "danger" in the group list.
+private const val UNSAFE_GLOW_COLOR = "#FF5252"
+
+// Pure renderer: the GPS/barometer/altitude-fusion pipeline that produces this
+// data lives in MainActivity now (runs the whole time you're signed in,
+// regardless of which tab is selected) — this screen just reads the shared
+// Firebase state and draws it, same as it already did for everyone else's
+// markers, now including its own.
+@Composable
+fun GlassBuildingMapScreen(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    val mapView = remember { MapView(context).also { it.onCreate(null) } }
+    var loadedStyle by remember { mutableStateOf<Style?>(null) }
+
+    DisposableEffect(lifecycleOwner, mapView) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> mapView.onStart()
+                Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                Lifecycle.Event.ON_STOP -> mapView.onStop()
+                Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(mapView) {
+        mapView.getMapAsync { map ->
+            // Instant snap, not an animated fly-in: this is what judges see on boot.
+            map.cameraPosition = CameraPosition.Builder()
+                .target(LatLng(DemoLocation.SAM_IBRAHIM_LAT, DemoLocation.SAM_IBRAHIM_LNG))
+                .zoom(DemoLocation.BOOT_ZOOM)
+                .tilt(DemoLocation.BOOT_PITCH)
+                .build()
+
+            map.setStyle(MapTilerConfig.STYLE_URL) { style ->
+                applyNightPalette(style)
+                addBuilding3DLayer(style)
+                addGhostAvatarLayer(style, context)
+                loadedStyle = style
+            }
+        }
+    }
+
+    // Read path: everyone's current location (ours included, pushed by the
+    // pipeline in MainActivity) -> rendered as markers.
+    var groupLocations by remember { mutableStateOf<List<GroupLocation>>(emptyList()) }
+
+    DisposableEffect(Unit) {
+        val listener = LocationRepository.observeAllLocations { locations ->
+            groupLocations = locations
+        }
+        onDispose { LocationRepository.removeObserver(listener) }
+    }
+
+    // Status (safe/unsure/danger) lives in a separate UUID/{userId} node from
+    // location — same reasoning as keeping locations separate from GroupMember:
+    // this is just a read, so it doesn't reintroduce that write-collision problem.
+    var groupMembers by remember { mutableStateOf<List<GroupMember>>(emptyList()) }
+
+    DisposableEffect(Unit) {
+        val listener = UserRepository.observeAllUsers { members ->
+            groupMembers = members
+        }
+        onDispose { UserRepository.removeObserver(listener) }
+    }
+
+    LaunchedEffect(loadedStyle, groupLocations, groupMembers) {
+        val style = loadedStyle ?: return@LaunchedEffect
+        updateGhostAvatars(style, groupLocations, groupMembers)
+    }
+
+    AndroidView(
+        modifier = modifier.fillMaxSize(),
+        factory = { mapView }
+    )
+}
+
+// Recolors the loaded style to match the KAZE login/signup screens' navy + cyan
+// look, keyed on stable OpenMapTiles source-layer names rather than style-specific
+// layer ids, so this survives MapTiler renaming/rebuilding the base style.
+private fun applyNightPalette(style: Style) {
+    style.layers.forEach { layer ->
+        when (layer) {
+            is BackgroundLayer -> layer.setProperties(
+                PropertyFactory.backgroundColor(NightPalette.BACKGROUND)
+            )
+
+            is FillLayer -> when (layer.sourceLayer) {
+                "water" -> layer.setProperties(PropertyFactory.fillColor(NightPalette.WATER))
+                "building" -> layer.setProperties(PropertyFactory.fillColor(NightPalette.BUILDING_2D))
+                "landcover", "landuse", "park" -> layer.setProperties(
+                    PropertyFactory.fillColor(NightPalette.LANDCOVER)
+                )
+            }
+
+            is LineLayer -> when (layer.sourceLayer) {
+                "transportation" -> layer.setProperties(PropertyFactory.lineColor(NightPalette.ROAD))
+                "waterway" -> layer.setProperties(PropertyFactory.lineColor(NightPalette.WATER))
+                "boundary" -> layer.setProperties(PropertyFactory.lineColor(NightPalette.BOUNDARY))
+            }
+
+            is SymbolLayer -> layer.setProperties(
+                PropertyFactory.textColor(NightPalette.TEXT_PRIMARY),
+                PropertyFactory.textHaloColor(NightPalette.BACKGROUND),
+                PropertyFactory.textHaloWidth(1.2f)
+            )
+
+            is FillExtrusionLayer -> layer.setProperties(
+                PropertyFactory.fillExtrusionOpacity(0.65f),
+                PropertyFactory.fillExtrusionColor(NightPalette.BUILDING_GLASS)
+            )
+        }
+    }
+}
+
+// MapTiler's basemap styles (confirmed against their own "Display buildings in 3D"
+// doc) never ship a fill-extrusion buildings layer themselves — the "building"
+// source-layer is there with real height data, you just have to add the 3D layer
+// yourself. We don't hardcode the vector source id (it differs between MapTiler's
+// style generations) — we find whichever vector source the loaded style actually
+// has and bind to that.
+private fun addBuilding3DLayer(style: Style) {
+    if (style.getLayer(BUILDING_3D_LAYER_ID) != null) return
+
+    val vectorSourceId = style.sources.filterIsInstance<VectorSource>().firstOrNull()?.id
+    if (vectorSourceId == null) {
+        Log.w(
+            TAG,
+            "No vector source in this style — can't add a 3D buildings layer. " +
+                "Sources present: ${style.sources.map { it.id }}"
+        )
+        return
+    }
+
+    val labelLayerId = style.layers.firstOrNull { it is SymbolLayer }?.id
+
+    val building3D = FillExtrusionLayer(BUILDING_3D_LAYER_ID, vectorSourceId).apply {
+        setSourceLayer("building")
+        setFilter(Expression.not(Expression.has("hide_3d")))
+        minZoom = 14f
+        setProperties(
+            PropertyFactory.fillExtrusionColor(NightPalette.BUILDING_GLASS),
+            PropertyFactory.fillExtrusionOpacity(0.65f),
+            PropertyFactory.fillExtrusionHeight(Expression.get("height"))
+        )
+    }
+
+    if (labelLayerId != null) {
+        style.addLayerBelow(building3D, labelLayerId)
+    } else {
+        style.addLayer(building3D)
+    }
+
+    Log.d(
+        TAG,
+        "Added '$BUILDING_3D_LAYER_ID' on vector source '$vectorSourceId', " +
+            "source-layer 'building', below label layer '$labelLayerId'"
+    )
+}
+
+// --- Ghost avatars: group locations -> Canvas bitmaps -> GeoJsonSource -----
+
+// IMPORTANT, verified against this project's actual android-sdk 13.7.1 jar:
+// MapLibre Native's SymbolLayer/PropertyFactory on Android has no elevation or
+// height-offset property (that's a MapLibre GL JS-only feature, gated behind a
+// terrain source — it doesn't exist in this native SDK version). Point.fromLngLat
+// below DOES store the Z value on the GeoJSON geometry (correct, ready for a
+// richer future payload), but MapLibre Android will not use it to move the icon
+// up/down on screen. The gray-out / caution-badge treatment is the actual visual
+// communication of floor state here, not vertical position.
+private fun iconIdFor(classification: FloorClassification, isUnsafe: Boolean): String {
+    val base = when (classification) {
+        FloorClassification.CONFIDENT_GROUND -> GHOST_ICON_GROUND_ID
+        FloorClassification.CONFIDENT_UNDERGROUND -> GHOST_ICON_UNDERGROUND_ID
+        FloorClassification.UNCERTAIN -> GHOST_ICON_UNCERTAIN_ID
+    }
+    return if (isUnsafe) "$base-unsafe" else base
+}
+
+private fun addGhostAvatarLayer(style: Style, context: Context) {
+    if (style.getLayer(GHOST_LAYER_ID) != null) return
+
+    if (style.getSource(GHOST_SOURCE_ID) == null) {
+        style.addSource(GeoJsonSource(GHOST_SOURCE_ID))
+    }
+
+    // One bitmap per (classification, isUnsafe) combo, registered once — which
+    // bitmap a given marker uses is a per-feature "iconId" property (see
+    // updateGhostAvatars), not something we regenerate on every update.
+    FloorClassification.entries.forEach { classification ->
+        listOf(false, true).forEach { isUnsafe ->
+            style.addImage(
+                iconIdFor(classification, isUnsafe),
+                createGhostAvatarBitmap(context, classification, isUnsafe)
+            )
+        }
+    }
+
+    style.addLayer(
+        SymbolLayer(GHOST_LAYER_ID, GHOST_SOURCE_ID).withProperties(
+            PropertyFactory.iconImage(Expression.get("iconId")),
+            // Fixed value, no zoom-stop expression: stays a constant pixel size
+            // on screen regardless of zoom level.
+            PropertyFactory.iconSize(1f),
+            PropertyFactory.iconAllowOverlap(true),
+            PropertyFactory.iconIgnorePlacement(true)
+        )
+    )
+}
+
+private fun updateGhostAvatars(
+    style: Style,
+    groupLocations: List<GroupLocation>,
+    groupMembers: List<GroupMember>
+) {
+    val statusByUserId = groupMembers.associateBy({ it.id }, { it.status })
+
+    val features = groupLocations.map { location ->
+        val status = statusByUserId[location.userId]?.ifBlank { "safe" } ?: "safe"
+        val isUnsafe = status.equals("danger", ignoreCase = true)
+
+        val point = Point.fromLngLat(location.longitude, location.latitude, location.clampedAltitudeMeters)
+        val properties = JsonObject().apply {
+            addProperty("userId", location.userId)
+            addProperty("iconId", iconIdFor(location.classification, isUnsafe))
+        }
+        Feature.fromGeometry(point, properties)
+    }
+
+    // TODO: name label per marker — nice follow-up, not required for this pass.
+    (style.getSource(GHOST_SOURCE_ID) as? GeoJsonSource)?.setGeoJson(FeatureCollection.fromFeatures(features))
+}
+
+private fun createGhostAvatarBitmap(
+    context: Context,
+    classification: FloorClassification,
+    isUnsafe: Boolean
+): Bitmap {
+    val bitmap = Bitmap.createBitmap(GHOST_ICON_SIZE_PX, GHOST_ICON_SIZE_PX, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+
+    val center = GHOST_ICON_SIZE_PX / 2f
+    val avatarRadius = GHOST_ICON_SIZE_PX / 2f - 10f
+    val isUnderground = classification == FloorClassification.CONFIDENT_UNDERGROUND
+
+    val fillColor = if (isUnderground) UNDERGROUND_FILL_COLOR else NightPalette.BUILDING_GLASS
+    val strokeColor = if (isUnderground) UNDERGROUND_STROKE_COLOR else NightPalette.ACCENT
+
+    if (isUnsafe) {
+        // Soft blurred halo drawn first/underneath, so it reads as a glow
+        // around the avatar rather than a hard ring.
+        val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = AndroidColor.parseColor(UNSAFE_GLOW_COLOR)
+            style = Paint.Style.STROKE
+            strokeWidth = 16f
+            maskFilter = BlurMaskFilter(18f, BlurMaskFilter.Blur.NORMAL)
+        }
+        canvas.drawCircle(center, center, avatarRadius, glowPaint)
+    }
+
+    val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = AndroidColor.parseColor(fillColor)
+        style = Paint.Style.FILL
+    }
+    val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = AndroidColor.parseColor(strokeColor)
+        style = Paint.Style.STROKE
+        strokeWidth = 6f
+    }
+
+    canvas.drawCircle(center, center, avatarRadius, fillPaint)
+    canvas.drawCircle(center, center, avatarRadius, strokePaint)
+
+    if (isUnsafe) {
+        // Crisp ring on top of the blurred halo so the red reads clearly even
+        // where the blur alone would look too soft.
+        val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = AndroidColor.parseColor(UNSAFE_GLOW_COLOR)
+            style = Paint.Style.STROKE
+            strokeWidth = 4f
+        }
+        canvas.drawCircle(center, center, avatarRadius, ringPaint)
+    }
+
+    // Badge only for the uncertain state — confident-ground gets nothing,
+    // confident-underground is communicated purely by the gray-out above.
+    if (classification == FloorClassification.UNCERTAIN) {
+        drawCautionBadge(context, canvas)
+    }
+
+    return bitmap
+}
+
+private fun drawCautionBadge(context: Context, canvas: Canvas) {
+    val badgeRadius = GHOST_ICON_SIZE_PX / 6f
+    val badgeCx = GHOST_ICON_SIZE_PX - badgeRadius - 4f
+    val badgeCy = badgeRadius + 4f
+
+    val badgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = AndroidColor.parseColor(CAUTION_BADGE_COLOR)
+        style = Paint.Style.FILL
+    }
+    canvas.drawCircle(badgeCx, badgeCy, badgeRadius, badgePaint)
+
+    val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = AndroidColor.parseColor(NightPalette.BACKGROUND)
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+    }
+    canvas.drawCircle(badgeCx, badgeCy, badgeRadius, borderPaint)
+
+    val iconHalf = (badgeRadius * 0.6f).toInt()
+    ContextCompat.getDrawable(context, R.drawable.ic_ghost_caution)?.apply {
+        setBounds(
+            (badgeCx - iconHalf).toInt(),
+            (badgeCy - iconHalf).toInt(),
+            (badgeCx + iconHalf).toInt(),
+            (badgeCy + iconHalf).toInt()
+        )
+        draw(canvas)
+    }
+}
