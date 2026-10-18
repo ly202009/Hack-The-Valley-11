@@ -56,6 +56,8 @@ fun MainGroupScreen(
     onAddEmergencyContactClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val validMembers = members.filter { it.id.isNotBlank() }.distinctBy { it.id }
+
     Box(modifier = Modifier.fillMaxSize()) {
         // Reuse the background from RegistrationScreen
         DynamicBlueGridBackground()
@@ -82,7 +84,7 @@ fun MainGroupScreen(
                             color = Color.White
                         )
                         Text(
-                            text = "Group Count: ${members.size}",
+                            text = "Group Count: ${validMembers.size}",
                             fontSize = 13.sp,
                             color = Color(0xFF8BB5E2)
                         )
