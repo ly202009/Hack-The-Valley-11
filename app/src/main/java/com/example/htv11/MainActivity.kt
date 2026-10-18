@@ -142,9 +142,9 @@ class MainActivity : ComponentActivity() {
                                             UserRepository.setStatus(activeUser.uid, status)
                                         }
                                         if (status == SafetyStatus.DANGER) {
-                                            // Silent: if nobody else is in the group, text the emergency contacts instead.
+                                            // Silent: also text the emergency contacts, whoever else is in the group.
                                             lifecycleScope.launch {
-                                                DistressAlert.sendIfAlone(this@MainActivity, activeUser.uid, displayName)
+                                                DistressAlert.send(this@MainActivity, displayName)
                                             }
                                         }
                                         status != null
