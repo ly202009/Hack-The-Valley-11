@@ -123,9 +123,8 @@ fun GroupSettingsScreen(
                 onToggleEnabled = onToggleSafeDistanceEnabled
             )
 
-            Spacer(modifier = Modifier.weight(1f))
-
             ServerNudgeLengthCard()
+            Spacer(modifier = Modifier.weight(1f))
 
             Button(
                 onClick = onLeaveGroupClick,
