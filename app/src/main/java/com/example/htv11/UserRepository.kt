@@ -7,6 +7,9 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.MutableData
 import com.google.firebase.database.Transaction
 import com.google.firebase.database.ValueEventListener
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.resume
 
 object UserRepository {
     private const val db = "https://squad-mesh-default-rtdb.firebaseio.com"
@@ -78,6 +81,29 @@ object UserRepository {
         return listener
     }
 
+    /**
+     * How many real members besides [selfId] are in the group, or null if that can't be read
+     * (offline). Nameless entries are ghost profiles and don't count.
+     */
+    suspend fun countOtherMembers(selfId: String): Int? = withTimeoutOrNull(5_000L) {
+        suspendCancellableCoroutine<Int?> { continuation ->
+            val listener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val others = snapshot.children.count { child ->
+                        child.key != selfId && !child.child("name").getValue(String::class.java).isNullOrBlank()
+                    }
+                    if (continuation.isActive) continuation.resume(others)
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    if (continuation.isActive) continuation.resume(null)
+                }
+            }
+            usersRef.addListenerForSingleValueEvent(listener)
+            continuation.invokeOnCancellation { usersRef.removeEventListener(listener) }
+        }
+    }
+
     fun removeObserver(listener: ValueEventListener) {
         usersRef.removeEventListener(listener)
     }
@@ -115,11 +141,11 @@ object UserRepository {
             onComplete(false)
             return
         }
+        // The key can't hold . $ # [ ] / so the real name is also stored as a field.
         usersRef.child(userId)
             .child("emergency-contacts")
-            .child(name)
-            .child("phone")
-            .setValue(phoneNumber)
+            .child(contactKey(name))
+            .updateChildren(mapOf("name" to name.trim(), "phone" to phoneNumber))
             .addOnCompleteListener { task -> onComplete(task.isSuccessful) }
     }
 
@@ -128,9 +154,11 @@ object UserRepository {
         if (userId.isBlank() || name.isBlank()) return
         usersRef.child(userId)
             .child("emergency-contacts")
-            .child(name)
+            .child(contactKey(name))
             .removeValue()
     }
+
+    private fun contactKey(name: String): String = name.trim().replace(Regex("[.$#\\[\\]/]"), "_")
 
     // Live listener for the current user's emergency contacts
     fun observeEmergencyContacts(
@@ -141,7 +169,8 @@ object UserRepository {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val contacts = mutableListOf<EmergencyContact>()
                 for (child in snapshot.children) {
-                    val name = child.key ?: ""
+                    // Older entries have no "name" field and used the key as the name.
+                    val name = child.child("name").getValue(String::class.java) ?: child.key ?: ""
                     val phone = child.child("phone").getValue(String::class.java) ?: ""
                     if (name.isNotBlank()) {
                         contacts.add(EmergencyContact(name = name, phone = phone))
