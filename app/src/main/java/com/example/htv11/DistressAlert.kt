@@ -43,7 +43,7 @@ object DistressAlert {
      * their location. Shows nothing on screen, and does nothing if the SMS permission, a contact
      * or a recent send is missing, since asking for permission here would give the signal away.
      */
-    suspend fun sendIfAlone(context: Context, userId: String, userName: String) {
+    suspend fun sendIfAlone(context: Context, groupId: String, userId: String, userName: String) {
         val contacts = EmergencyContactStore.load(context).filter { it.phone.isNotBlank() }
         if (contacts.isEmpty() || !hasSmsPermission(context)) return
 
@@ -52,7 +52,7 @@ object DistressAlert {
         if (now - prefs.getLong(KEY_LAST_SENT, 0L) < COOLDOWN_MS) return
 
         // null means the group couldn't be checked (offline), and then nobody would see the alert either.
-        val others = UserRepository.countOtherMembers(userId)
+        val others = UserRepository.countOtherMembers(groupId, userId)
         if (others != null && others > 0) return
 
         prefs.edit().putLong(KEY_LAST_SENT, now).apply()

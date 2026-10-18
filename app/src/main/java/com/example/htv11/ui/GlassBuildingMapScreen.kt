@@ -70,7 +70,10 @@ private const val UNSAFE_GLOW_COLOR = "#FF5252"
 // Firebase state and draws it, same as it already did for everyone else's
 // markers, now including its own.
 @Composable
-fun GlassBuildingMapScreen(modifier: Modifier = Modifier) {
+fun GlassBuildingMapScreen(
+    groupId: String = "DEFAULT_SQUAD",
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -114,11 +117,11 @@ fun GlassBuildingMapScreen(modifier: Modifier = Modifier) {
     // pipeline in MainActivity) -> rendered as markers.
     var groupLocations by remember { mutableStateOf<List<GroupLocation>>(emptyList()) }
 
-    DisposableEffect(Unit) {
-        val listener = LocationRepository.observeAllLocations { locations ->
+    DisposableEffect(groupId) {
+        val listener = LocationRepository.observeAllLocations(groupId) { locations ->
             groupLocations = locations
         }
-        onDispose { LocationRepository.removeObserver(listener) }
+        onDispose { LocationRepository.removeObserver(groupId, listener) }
     }
 
     // Status (safe/unsure/danger) lives in a separate UUID/{userId} node from
@@ -126,11 +129,11 @@ fun GlassBuildingMapScreen(modifier: Modifier = Modifier) {
     // this is just a read, so it doesn't reintroduce that write-collision problem.
     var groupMembers by remember { mutableStateOf<List<GroupMember>>(emptyList()) }
 
-    DisposableEffect(Unit) {
-        val listener = UserRepository.observeAllUsers { members ->
+    DisposableEffect(groupId) {
+        val listener = UserRepository.observeAllUsers(groupId) { members ->
             groupMembers = members
         }
-        onDispose { UserRepository.removeObserver(listener) }
+        onDispose { UserRepository.removeObserver(groupId, listener) }
     }
 
     LaunchedEffect(loadedStyle, groupLocations, groupMembers) {

@@ -1,5 +1,6 @@
 package com.example.htv11
 
+import android.widget.Toast
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -12,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,12 +26,15 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -38,29 +43,81 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.htv11.ui.theme.Htv11Theme
 import kotlin.random.Random
 
+fun generateRandomGroupId(): String {
+    val charPool = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    val code = (1..6).map { charPool[Random.nextInt(charPool.length)] }.joinToString("")
+    return "KZ-$code"
+}
+
 @Composable
 fun RegistrationScreen(
     modifier: Modifier = Modifier,
-    onJoinGroup: (String) -> Unit = {}
+    currentDisplayName: String? = null,
+    onSaveName: (name: String) -> Unit = {},
+    onJoinGroup: (groupId: String) -> Unit = {},
+    onCreateGroup: (groupId: String) -> Unit = {}
 ) {
-    var name by remember { mutableStateOf("") }
+    var nameInput by remember(currentDisplayName) { mutableStateOf(currentDisplayName ?: "") }
+    var groupIdInput by remember { mutableStateOf("") }
+    var isCheckingGroup by remember { mutableStateOf(false) }
+    var lastJoinAttemptTime by remember { mutableLongStateOf(0L) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val scrollState = rememberScrollState()
 
+    val attemptJoinGroup: () -> Unit = {
+        focusManager.clearFocus()
+        val cleanGroup = groupIdInput.trim()
+
+        if (cleanGroup.isNotBlank()) {
+            val now = System.currentTimeMillis()
+            val elapsed = now - lastJoinAttemptTime
+            if (elapsed < 5000L) {
+                val remainingSecs = ((5000L - elapsed) / 1000L) + 1
+                errorMessage = "Rate limit: Wait ${remainingSecs}s before testing another Group ID."
+                Toast.makeText(context, errorMessage, Toast.LENGTH_SHORT).show()
+            } else {
+                lastJoinAttemptTime = now
+                isCheckingGroup = true
+                errorMessage = null
+
+                AuthManager.ensureAuth { authenticated ->
+                    if (!authenticated) {
+                        isCheckingGroup = false
+                        errorMessage = "Authentication failed. Check your network connection."
+                        Toast.makeText(context, errorMessage, Toast.LENGTH_SHORT).show()
+                        return@ensureAuth
+                    }
+                    UserRepository.checkGroupExists(cleanGroup) { exists ->
+                        isCheckingGroup = false
+                        if (exists) {
+                            onJoinGroup(cleanGroup)
+                        } else {
+                            errorMessage = "Group '$cleanGroup' not found in squad network."
+                            Toast.makeText(context, errorMessage, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
-        // Dynamic cybernetic grid rendered edge-to-edge
         DynamicBlueGridBackground()
 
-        // Content Column respects system insets and software keyboard padding
         Column(
             modifier = modifier
                 .fillMaxSize()
@@ -70,7 +127,7 @@ fun RegistrationScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "Welcome to KAZE",
+                text = "KAZE PROTOCOL",
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White
@@ -79,73 +136,187 @@ fun RegistrationScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Device not recognized. Set up your profile to continue.",
+                text = if (currentDisplayName.isNullOrBlank()) {
+                    "Identify yourself to register your permanent operative UUID."
+                } else {
+                    "Operative: $currentDisplayName"
+                },
                 fontSize = 14.sp,
-                color = Color(0xFF8BB5E2)
+                color = Color(0xFF8BB5E2),
+                textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(36.dp))
+            Spacer(modifier = Modifier.height(28.dp))
 
-            // Translucent futuristic glass card
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Color(0x11FFFFFF), RoundedCornerShape(16.dp))
                     .border(1.dp, Color(0x3300FFCC), RoundedCornerShape(16.dp))
-                    .padding(24.dp)
+                    .padding(20.dp)
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it },
-                        label = { Text("Name", color = Color(0xFF8BB5E2)) },
-                        placeholder = { Text("e.g., Daniel", color = Color(0xFF425A77)) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.medium,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            focusedBorderColor = Color(0xFF00FFCC),
-                            unfocusedBorderColor = Color(0xFF0A51A4),
-                            focusedLabelColor = Color(0xFF00FFCC),
-                            unfocusedLabelColor = Color(0xFF8BB5E2),
-                            cursorColor = Color(0xFF00FFCC)
-                        ),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(
-                            onDone = {
-                                focusManager.clearFocus()
-                                if (name.isNotBlank()) onJoinGroup(name.trim())
-                            }
+                    if (currentDisplayName.isNullOrBlank()) {
+                        // Stage 1: Enter Operative Name
+                        OutlinedTextField(
+                            value = nameInput,
+                            onValueChange = { nameInput = it },
+                            label = { Text("Operative Name", color = Color(0xFF8BB5E2)) },
+                            placeholder = { Text("e.g., Daniel", color = Color(0xFF425A77)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.medium,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                focusedBorderColor = Color(0xFF00FFCC),
+                                unfocusedBorderColor = Color(0xFF0A51A4),
+                                focusedLabelColor = Color(0xFF00FFCC),
+                                unfocusedLabelColor = Color(0xFF8BB5E2),
+                                cursorColor = Color(0xFF00FFCC)
+                            ),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(
+                                onDone = {
+                                    focusManager.clearFocus()
+                                    if (nameInput.isNotBlank()) onSaveName(nameInput.trim())
+                                }
+                            )
                         )
-                    )
 
-                    Button(
-                        onClick = {
-                            focusManager.clearFocus()
-                            onJoinGroup(name.trim())
-                        },
-                        enabled = name.isNotBlank(),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp),
-                        shape = MaterialTheme.shapes.medium,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF00E5FF),
-                            contentColor = Color(0xFF020B1E),
-                            disabledContainerColor = Color(0x22FFFFFF),
-                            disabledContentColor = Color(0x44FFFFFF)
+                        Button(
+                            onClick = {
+                                focusManager.clearFocus()
+                                if (nameInput.isNotBlank()) onSaveName(nameInput.trim())
+                            },
+                            enabled = nameInput.isNotBlank(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp),
+                            shape = MaterialTheme.shapes.medium,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF00E5FF),
+                                contentColor = Color(0xFF020B1E),
+                                disabledContainerColor = Color(0x22FFFFFF),
+                                disabledContentColor = Color(0x44FFFFFF)
+                            )
+                        ) {
+                            Text(
+                                text = "Continue ->",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    } else {
+                        // Stage 2: Group Join or Creation
+                        OutlinedTextField(
+                            value = groupIdInput,
+                            onValueChange = {
+                                groupIdInput = it.uppercase()
+                                errorMessage = null
+                            },
+                            label = { Text("Group ID", color = Color(0xFF8BB5E2)) },
+                            placeholder = { Text("e.g., KZ-8391", color = Color(0xFF425A77)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.medium,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                focusedBorderColor = Color(0xFF00FFCC),
+                                unfocusedBorderColor = Color(0xFF0A51A4),
+                                focusedLabelColor = Color(0xFF00FFCC),
+                                unfocusedLabelColor = Color(0xFF8BB5E2),
+                                cursorColor = Color(0xFF00FFCC)
+                            ),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(
+                                onDone = { attemptJoinGroup() }
+                            )
                         )
-                    ) {
-                        Text(
-                            text = "Join Group",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+
+                        errorMessage?.let { error ->
+                            Text(
+                                text = error,
+                                color = Color(0xFFFF5252),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        // Join Existing Group Button
+                        Button(
+                            onClick = attemptJoinGroup,
+                            enabled = groupIdInput.isNotBlank() && !isCheckingGroup,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp),
+                            shape = MaterialTheme.shapes.medium,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF00E5FF),
+                                contentColor = Color(0xFF020B1E),
+                                disabledContainerColor = Color(0x22FFFFFF),
+                                disabledContentColor = Color(0x44FFFFFF)
+                            )
+                        ) {
+                            Text(
+                                text = if (isCheckingGroup) "Connecting..." else "Join Squad Group",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            HorizontalDivider(
+                                modifier = Modifier.weight(1f),
+                                color = Color(0x3300FFCC)
+                            )
+                            Text(
+                                text = "  OR  ",
+                                color = Color(0xFF8BB5E2),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            HorizontalDivider(
+                                modifier = Modifier.weight(1f),
+                                color = Color(0x3300FFCC)
+                            )
+                        }
+
+                        // Create New Group Option
+                        OutlinedButton(
+                            onClick = {
+                                focusManager.clearFocus()
+                                val newGroupId = generateRandomGroupId()
+                                onCreateGroup(newGroupId)
+                            },
+                            enabled = !isCheckingGroup,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp),
+                            shape = MaterialTheme.shapes.medium,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00FFCC)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = Color(0xFF00FFCC),
+                                disabledContentColor = Color(0x44FFFFFF)
+                            )
+                        ) {
+                            Text(
+                                text = "+ Create New Squad Group",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
@@ -184,7 +355,6 @@ fun DynamicBlueGridBackground() {
     }
 
     Canvas(modifier = Modifier.fillMaxSize()) {
-        // Deep background gradient
         drawRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
@@ -195,14 +365,9 @@ fun DynamicBlueGridBackground() {
             )
         )
 
-        // Animated grid lines
         val gridSpacing = 80f
         val animatedOffset = offsetProgress % gridSpacing
 
-        // Bounded loops (iteration count computed up front) instead of a `while`
-        // keyed on a running float vs size.width/height — if this Canvas is ever
-        // measured with an unbounded/infinite constraint, a `while` version of
-        // this spins forever instead of just drawing zero/garbage lines.
         if (size.width.isFinite()) {
             val verticalLineCount = (size.width / gridSpacing).toInt() + 1
             for (i in 0..verticalLineCount) {
@@ -230,7 +395,6 @@ fun DynamicBlueGridBackground() {
             }
         }
 
-        // Particle nodes
         particles.forEach { (positionRatio, sizeMultiplier) ->
             val particleX = positionRatio.x * size.width
             val particleY = positionRatio.y * size.height

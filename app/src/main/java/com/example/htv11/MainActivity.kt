@@ -21,7 +21,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.core.content.ContextCompat
 import com.example.htv11.location.AltitudeFusion
 import com.example.htv11.location.BarometerReader
@@ -44,45 +46,58 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             Htv11Theme {
-                // If there's a cached user, we need to verify them before displaying the main screen
+                val prefs = remember { getSharedPreferences("htv11_prefs", MODE_PRIVATE) }
                 var isCheckingSession by remember { mutableStateOf(AuthManager.currentUser != null) }
                 var currentUser by remember { mutableStateOf(AuthManager.currentUser) }
+                var currentGroupId by remember {
+                    mutableStateOf(prefs.getString("current_group_id", "") ?: "")
+                }
 
-                // Only relevant once signed in — group view is the default landing tab.
                 var selectedTab by remember { mutableStateOf(AppTab.GROUP) }
 
                 LaunchedEffect(Unit) {
                     if (AuthManager.currentUser != null) {
                         AuthManager.verifySession { verifiedUser ->
-                            currentUser = verifiedUser
+                            if (verifiedUser == null) {
+                                // If cached UUID cannot be found or verified on Firebase, reset to first login page
+                                prefs.edit().clear().apply()
+                                currentGroupId = ""
+                                currentUser = null
+                            } else {
+                                currentUser = verifiedUser
+                            }
                             isCheckingSession = false
                         }
+                    } else {
+                        isCheckingSession = false
                     }
                 }
 
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     bottomBar = {
-                        if (!isCheckingSession && currentUser != null) {
+                        if (!isCheckingSession && currentUser != null && currentGroupId.isNotBlank()) {
                             KazeBottomBar(selectedTab = selectedTab, onTabSelected = { selectedTab = it })
                         }
                     }
                 ) { innerPadding ->
                     when {
-                        // 1. Brief verification check in progress: display the themed background to prevent screen flash
+                        // 1. Brief verification check in progress
                         isCheckingSession -> {
                             Box(modifier = Modifier.fillMaxSize()) {
                                 DynamicBlueGridBackground()
                             }
                         }
 
-                        // 2. No session or user deleted on Firebase: show registration
-                        currentUser == null -> {
+                        // 2. No session, display name missing, or group ID missing: show registration / group selection
+                        currentUser == null || currentUser?.displayName.isNullOrBlank() || currentGroupId.isBlank() -> {
+                            val activeDisplayName = currentUser?.displayName
                             RegistrationScreen(
                                 modifier = Modifier
                                     .padding(innerPadding)
                                     .imePadding(),
-                                onJoinGroup = { enteredName ->
+                                currentDisplayName = activeDisplayName,
+                                onSaveName = { enteredName ->
                                     AuthManager.signInAnonymously(
                                         displayName = enteredName,
                                         onSuccess = {
@@ -96,21 +111,34 @@ class MainActivity : ComponentActivity() {
                                             ).show()
                                         }
                                     )
+                                },
+                                onJoinGroup = { groupId ->
+                                    UserRepository.createGroup(groupId) {
+                                        prefs.edit().putString("current_group_id", groupId).apply()
+                                        currentGroupId = groupId
+                                    }
+                                },
+                                onCreateGroup = { groupId ->
+                                    UserRepository.createGroup(groupId) {
+                                        prefs.edit().putString("current_group_id", groupId).apply()
+                                        currentGroupId = groupId
+                                    }
                                 }
                             )
                         }
 
-                        // 3. Authenticated & verified user: proceed to main group screen or map
+                        // 3. Authenticated & verified user in an active group: proceed to squad screen or map
                         else -> {
                             val activeUser = currentUser!!
                             val displayName = activeUser.displayName?.ifBlank { "Operative" } ?: "Operative"
                             var members by remember { mutableStateOf<List<GroupMember>>(emptyList()) }
                             var isProfileLoaded by remember { mutableStateOf(false) }
+                            var showLeaveGroupDialog by remember { mutableStateOf(false) }
 
-                            // Sync user profile and listen for updates from RTDB
-                            DisposableEffect(activeUser.uid) {
-                                val prefs = getSharedPreferences("htv11_prefs", MODE_PRIVATE)
+                            // Sync user profile and listen for updates from RTDB under currentGroupId
+                            DisposableEffect(activeUser.uid, currentGroupId) {
                                 prefs.edit().putString("current_user_id", activeUser.uid).apply()
+                                prefs.edit().putString("current_group_id", currentGroupId).apply()
 
                                 val self = GroupMember(
                                     id = activeUser.uid,
@@ -118,23 +146,24 @@ class MainActivity : ComponentActivity() {
                                     isOnline = true,
                                     status = "safe"
                                 )
-                                UserRepository.saveUser(self) { success ->
+                                UserRepository.saveUser(currentGroupId, self) { success ->
                                     if (success) {
-                                        UserRepository.setOnlineStatus(activeUser.uid, true)
+                                        UserRepository.setOnlineStatus(currentGroupId, activeUser.uid, true)
                                     }
                                 }
 
                                 var listener: ValueEventListener? = null
-                                listener = UserRepository.observeAllUsers { liveMembers ->
-                                    // Filter ghost users (profiles with blank ID or name)
+                                listener = UserRepository.observeAllUsers(currentGroupId) { liveMembers ->
                                     val validMembers = liveMembers.filter { it.id.isNotBlank() && it.name.isNotBlank() }
                                     members = validMembers
 
-                                    // If user profile is not found in RTDB after initial load, pause updates & return to entry screen
+                                    // If user profile/UUID was deleted from RTDB after initial load, push back to first login page
                                     if (isProfileLoaded && validMembers.none { it.id == activeUser.uid }) {
-                                        listener?.let { UserRepository.removeObserver(it) }
-                                        UserRepository.setOnlineStatus(activeUser.uid, false)
+                                        listener?.let { UserRepository.removeObserver(currentGroupId, it) }
+                                        UserRepository.setOnlineStatus(currentGroupId, activeUser.uid, false)
+                                        prefs.edit().clear().apply()
                                         AuthManager.signOut()
+                                        currentGroupId = ""
                                         currentUser = null
                                     } else if (validMembers.any { it.id == activeUser.uid }) {
                                         isProfileLoaded = true
@@ -142,9 +171,9 @@ class MainActivity : ComponentActivity() {
                                 }
 
                                 onDispose {
-                                    listener?.let { UserRepository.removeObserver(it) }
-                                    if (currentUser != null) {
-                                        UserRepository.setOnlineStatus(activeUser.uid, false)
+                                    listener?.let { UserRepository.removeObserver(currentGroupId, it) }
+                                    if (currentUser != null && currentGroupId.isNotBlank()) {
+                                        UserRepository.setOnlineStatus(currentGroupId, activeUser.uid, false)
                                     }
                                 }
                             }
@@ -163,12 +192,11 @@ class MainActivity : ComponentActivity() {
                                             PinResult.WRONG -> null
                                         }
                                         if (status != null) {
-                                            UserRepository.setStatus(activeUser.uid, status)
+                                            UserRepository.setStatus(currentGroupId, activeUser.uid, status)
                                         }
                                         if (status == SafetyStatus.DANGER) {
-                                            // Silent: if nobody else is in the group, text the emergency contacts instead.
                                             lifecycleScope.launch {
-                                                DistressAlert.sendIfAlone(this@MainActivity, activeUser.uid, displayName)
+                                                DistressAlert.sendIfAlone(this@MainActivity, currentGroupId, activeUser.uid, displayName)
                                             }
                                         }
                                         status != null
@@ -178,22 +206,18 @@ class MainActivity : ComponentActivity() {
 
                             var emergencyContacts by remember { mutableStateOf<List<EmergencyContact>>(emptyList()) }
 
-                            DisposableEffect(activeUser.uid) {
-                                val contactListener = UserRepository.observeEmergencyContacts(activeUser.uid) { liveContacts ->
+                            DisposableEffect(activeUser.uid, currentGroupId) {
+                                val contactListener = UserRepository.observeEmergencyContacts(currentGroupId, activeUser.uid) { liveContacts ->
                                     emergencyContacts = liveContacts
                                     EmergencyContactStore.save(this@MainActivity, liveContacts)
                                 }
 
                                 onDispose {
-                                    UserRepository.removeEmergencyContactsObserver(activeUser.uid, contactListener)
+                                    UserRepository.removeEmergencyContactsObserver(currentGroupId, activeUser.uid, contactListener)
                                 }
                             }
 
-                            // Sensor pipeline: GPS + barometer + MapTiler ground-truth elevation,
-                            // fused into a floor classification, pushed to Firebase. Lives here
-                            // (not inside GlassBuildingMapScreen) specifically so it runs the whole
-                            // time you're signed in, regardless of which tab is selected — opening
-                            // the Map tab no longer restarts the altitude-fusion startup baseline.
+                            // Sensor pipeline: GPS + barometer + MapTiler ground-truth elevation
                             val context = LocalContext.current
 
                             var hasLocationPermission by remember {
@@ -218,7 +242,7 @@ class MainActivity : ComponentActivity() {
                             val elevationClient = remember { ElevationLookupClient() }
                             val altitudeFusion = remember { AltitudeFusion() }
 
-                            LaunchedEffect(activeUser.uid, hasLocationPermission) {
+                            LaunchedEffect(activeUser.uid, currentGroupId, hasLocationPermission) {
                                 if (!hasLocationPermission) return@LaunchedEffect
 
                                 launch {
@@ -259,6 +283,7 @@ class MainActivity : ComponentActivity() {
                                     )
 
                                     LocationRepository.pushLocation(
+                                        groupId = currentGroupId,
                                         userId = activeUser.uid,
                                         latitude = location.latitude,
                                         longitude = location.longitude,
@@ -272,12 +297,10 @@ class MainActivity : ComponentActivity() {
                             var pendingContact by remember { mutableStateOf<EmergencyContact?>(null) }
                             var contactToDelete by remember { mutableStateOf<EmergencyContact?>(null) }
 
-                            // Keep a recent location on hand for the silent alarm, which can't read it from the background.
                             LaunchedEffect(activeUser.uid) {
                                 LocationHelper.currentLocation(this@MainActivity)
                             }
 
-                            // Finds the user's location and address, then texts the contact straight away.
                             val textContact: (EmergencyContact) -> Unit = { contact ->
                                 Toast.makeText(this, "Getting your location...", Toast.LENGTH_SHORT).show()
                                 lifecycleScope.launch {
@@ -292,13 +315,11 @@ class MainActivity : ComponentActivity() {
                                             Toast.LENGTH_SHORT
                                         ).show()
                                     } else {
-                                        // No SMS permission or sending failed: let the user send it from their messaging app.
                                         openSmsComposer(this@MainActivity, contact.phone, message)
                                     }
                                 }
                             }
 
-                            // If a permission is refused, the alert still goes out without that part.
                             val alertPermissionLauncher = rememberLauncherForActivityResult(
                                 ActivityResultContracts.RequestMultiplePermissions()
                             ) {
@@ -311,12 +332,11 @@ class MainActivity : ComponentActivity() {
                                     onDismiss = { showAddContact = false },
                                     onSave = { name, phone ->
                                         showAddContact = false
-                                        UserRepository.addEmergencyContact(activeUser.uid, name, phone) { saved ->
+                                        UserRepository.addEmergencyContact(currentGroupId, activeUser.uid, name, phone) { saved ->
                                             if (!saved) {
                                                 Toast.makeText(this, "Couldn't save contact", Toast.LENGTH_SHORT).show()
                                             }
                                         }
-                                        // Ask now: the silent alarm can't show a permission prompt when it fires.
                                         if (!LocationHelper.hasPermission(this) || !hasSmsPermission(this)) {
                                             alertPermissionLauncher.launch(
                                                 arrayOf(
@@ -337,7 +357,7 @@ class MainActivity : ComponentActivity() {
                                     text = { Text("${contact.name} will no longer be alerted.") },
                                     confirmButton = {
                                         TextButton(onClick = {
-                                            UserRepository.deleteEmergencyContact(activeUser.uid, contact.name)
+                                            UserRepository.deleteEmergencyContact(currentGroupId, activeUser.uid, contact.name)
                                             contactToDelete = null
                                         }) { Text("Remove") }
                                     },
@@ -347,12 +367,42 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
 
-                            // Group/map toggle via the bottom bar
+                            // Leave Group Confirmation Dialog
+                            if (showLeaveGroupDialog) {
+                                AlertDialog(
+                                    onDismissRequest = { showLeaveGroupDialog = false },
+                                    title = { Text("Leave Group?") },
+                                    text = { Text("Are you sure you want to leave group '$currentGroupId'? Your profile and location data will be removed from this squad.") },
+                                    confirmButton = {
+                                        TextButton(
+                                            onClick = {
+                                                showLeaveGroupDialog = false
+                                                val leavingGroupId = currentGroupId
+                                                UserRepository.leaveGroup(leavingGroupId, activeUser.uid) {
+                                                    prefs.edit().remove("current_group_id").apply()
+                                                    currentGroupId = ""
+                                                }
+                                            }
+                                        ) {
+                                            Text("Leave", color = Color(0xFFFF5252), fontWeight = FontWeight.Bold)
+                                        }
+                                    },
+                                    dismissButton = {
+                                        TextButton(onClick = { showLeaveGroupDialog = false }) {
+                                            Text("Cancel")
+                                        }
+                                    }
+                                )
+                            }
+
+                            // Group/map toggle via bottom bar
                             when (selectedTab) {
                                 AppTab.GROUP -> MainGroupScreen(
                                     currentUserName = displayName,
+                                    groupId = currentGroupId,
                                     members = members,
                                     emergencyContacts = emergencyContacts,
+                                    onLeaveGroupClick = { showLeaveGroupDialog = true },
                                     onEmergencyContactClick = { contact ->
                                         if (LocationHelper.hasPermission(this) && hasSmsPermission(this)) {
                                             textContact(contact)
@@ -369,11 +419,10 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onDeleteEmergencyContactClick = { contact -> contactToDelete = contact },
                                     onAddEmergencyContactClick = {
-                                        // Writing before the profile exists would create a nameless ghost user.
                                         if (myMember != null) showAddContact = true
                                     },
                                     onNudgeMember = { member ->
-                                        UserRepository.nudgeUser(member.id)
+                                        UserRepository.nudgeUser(currentGroupId, member.id)
                                         val isSafe = member.status.lowercase() == "safe"
                                         val message = if (isSafe) {
                                             "Nudged ${member.name}! Status set to Unsure."
@@ -390,6 +439,7 @@ class MainActivity : ComponentActivity() {
                                 )
 
                                 AppTab.MAP -> GlassBuildingMapScreen(
+                                    groupId = currentGroupId,
                                     modifier = Modifier.padding(innerPadding)
                                 )
                             }

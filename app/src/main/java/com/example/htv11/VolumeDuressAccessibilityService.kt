@@ -53,17 +53,17 @@ class VolumeDuressAccessibilityService : AccessibilityService() {
 
         // Update status to danger in RTDB silently
         try {
-            val currentUserId = AuthManager.currentUser?.uid ?: run {
-                val prefs = applicationContext.getSharedPreferences("htv11_prefs", Context.MODE_PRIVATE)
-                prefs.getString("current_user_id", null)
-            }
+            val prefs = applicationContext.getSharedPreferences("htv11_prefs", Context.MODE_PRIVATE)
+            val currentUserId = AuthManager.currentUser?.uid ?: prefs.getString("current_user_id", null)
+            val currentGroupId = prefs.getString("current_group_id", "DEFAULT_SQUAD") ?: "DEFAULT_SQUAD"
+
             if (currentUserId != null) {
-                UserRepository.setStatus(currentUserId, SafetyStatus.DANGER)
-                Log.d(TAG, "Successfully updated status to danger in RTDB for user: $currentUserId")
+                UserRepository.setStatus(currentGroupId, currentUserId, SafetyStatus.DANGER)
+                Log.d(TAG, "Successfully updated status to danger in RTDB for user: $currentUserId in group: $currentGroupId")
 
                 // If nobody else is in the group, silently text the emergency contacts instead.
                 val userName = AuthManager.currentUser?.displayName?.ifBlank { null } ?: "Someone"
-                scope.launch { DistressAlert.sendIfAlone(applicationContext, currentUserId, userName) }
+                scope.launch { DistressAlert.sendIfAlone(applicationContext, currentGroupId, currentUserId, userName) }
             } else {
                 Log.w(TAG, "No user ID found when duress triggered")
             }

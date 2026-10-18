@@ -9,9 +9,6 @@ import com.google.firebase.database.ValueEventListener
 
 private const val DATABASE_URL = "https://squad-mesh-default-rtdb.firebaseio.com"
 
-// Firebase POJO for the locations/{userId} node. Kept separate from
-// GroupMember/UserRepository on purpose: GPS ticks every ~1.5s and would
-// otherwise also fire MainGroupScreen's member-list listener on every update.
 data class LocationRecord(
     var latitude: Double = 0.0,
     var longitude: Double = 0.0,
@@ -28,10 +25,16 @@ data class GroupLocation(
 )
 
 object LocationRepository {
-    private val locationsRef: DatabaseReference =
-        FirebaseDatabase.getInstance(DATABASE_URL).getReference("locations")
+    private val groupsRef: DatabaseReference =
+        FirebaseDatabase.getInstance(DATABASE_URL).getReference("groups")
+
+    private fun getLocationsRef(groupId: String): DatabaseReference {
+        val safeGroupId = groupId.trim().ifBlank { "DEFAULT_SQUAD" }
+        return groupsRef.child(safeGroupId).child("LOCATIONS")
+    }
 
     fun pushLocation(
+        groupId: String,
         userId: String,
         latitude: Double,
         longitude: Double,
@@ -44,10 +47,13 @@ object LocationRepository {
             clampedAltitudeMeters = clampedAltitudeMeters,
             classification = classification.name
         )
-        locationsRef.child(userId).setValue(record)
+        getLocationsRef(groupId).child(userId).setValue(record)
     }
 
-    fun observeAllLocations(onUpdate: (List<GroupLocation>) -> Unit): ValueEventListener {
+    fun observeAllLocations(
+        groupId: String,
+        onUpdate: (List<GroupLocation>) -> Unit
+    ): ValueEventListener {
         val listener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val result = mutableListOf<GroupLocation>()
@@ -76,11 +82,12 @@ object LocationRepository {
             }
         }
 
-        locationsRef.addValueEventListener(listener)
+        val ref = getLocationsRef(groupId)
+        ref.addValueEventListener(listener)
         return listener
     }
 
-    fun removeObserver(listener: ValueEventListener) {
-        locationsRef.removeEventListener(listener)
+    fun removeObserver(groupId: String, listener: ValueEventListener) {
+        getLocationsRef(groupId).removeEventListener(listener)
     }
 }

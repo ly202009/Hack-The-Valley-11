@@ -52,8 +52,10 @@ data class EmergencyContact(
 @Composable
 fun MainGroupScreen(
     currentUserName: String = "Daniel",
+    groupId: String = "DEFAULT_SQUAD",
     members: List<GroupMember>,
     emergencyContacts: List<EmergencyContact> = emptyList(),
+    onLeaveGroupClick: () -> Unit = {},
     onNudgeMember: (GroupMember) -> Unit = {},
     onEmergencyContactClick: (EmergencyContact) -> Unit = {},
     onDeleteEmergencyContactClick: (EmergencyContact) -> Unit = {},
@@ -88,24 +90,48 @@ fun MainGroupScreen(
                             color = Color.White
                         )
                         Text(
-                            text = "Group Count: ${validMembers.size}",
+                            text = "Group: $groupId  ·  Count: ${validMembers.size}",
                             fontSize = 13.sp,
                             color = Color(0xFF8BB5E2)
                         )
                     }
 
-                    Box(
-                        modifier = Modifier
-                            .background(Color(0x2200FFCC), RoundedCornerShape(20.dp))
-                            .border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(20.dp))
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = currentUserName,
-                            color = Color(0xFF00FFCC),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0x2200FFCC), RoundedCornerShape(20.dp))
+                                .border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(20.dp))
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = currentUserName,
+                                color = Color(0xFF00FFCC),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        Button(
+                            onClick = onLeaveGroupClick,
+                            shape = RoundedCornerShape(20.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0x33FF5252),
+                                contentColor = Color(0xFFFF5252)
+                            ),
+                            border = BorderStroke(1.dp, Color(0xFFFF5252)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Text(
+                                text = "Leave",
+                                color = Color(0xFFFF5252),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(12.dp))
@@ -201,8 +227,7 @@ fun MainGroupScreen(
             ) { contact ->
                 EmergencyContactCard (
                     contact = contact,
-                    onContactClick = { onEmergencyContactClick(contact) },
-                    onDeleteClick = { onDeleteEmergencyContactClick(contact) }
+                    onContactClick = { onEmergencyContactClick(contact) }
                 )
             }
         }
@@ -307,8 +332,7 @@ fun MemberCard(
 @Composable
 fun EmergencyContactCard(
     contact: EmergencyContact,
-    onContactClick: () -> Unit,
-    onDeleteClick: () -> Unit = {}
+    onContactClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
@@ -336,43 +360,21 @@ fun EmergencyContactCard(
                 )
             }
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Button(
+                onClick = onContactClick,
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0x3300FFCC),
+                    contentColor = Color(0xFF00FFCC)
+                ),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                modifier = Modifier.border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(8.dp))
             ) {
-                Button(
-                    onClick = onDeleteClick,
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0x22FF5252),
-                        contentColor = Color(0xFFFF5252)
-                    ),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                    modifier = Modifier.border(1.dp, Color(0xFFFF5252), RoundedCornerShape(8.dp))
-                ) {
-                    Text(
-                        text = "Delete",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Button(
-                    onClick = onContactClick,
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0x3300FFCC),
-                        contentColor = Color(0xFF00FFCC)
-                    ),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                    modifier = Modifier.border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(8.dp))
-                ) {
-                    Text(
-                        text = "Text",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                Text(
+                    text = "Contact",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
@@ -384,6 +386,7 @@ fun MainGroupScreenPreview() {
     Htv11Theme {
         MainGroupScreen(
             currentUserName = "Daniel",
+            groupId = "KZ-1234",
             members = listOf(
                 GroupMember(id = "1", name = "Daniel", isOnline = true, status = "safe"),
                 GroupMember(id = "2", name = "Sean", isOnline = true, status = "safe"),
