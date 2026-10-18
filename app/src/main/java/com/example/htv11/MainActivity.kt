@@ -1,30 +1,55 @@
 package com.example.htv11
 
 import android.Manifest
+import android.accessibilityservice.AccessibilityServiceInfo
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
 import android.os.Bundle
+import android.provider.Settings
+import android.text.TextUtils
 import android.util.Log
+import android.view.accessibility.AccessibilityManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.htv11.location.AltitudeFusion
 import com.example.htv11.location.BarometerReader
 import com.example.htv11.location.rawLocationUpdates
@@ -38,6 +63,40 @@ import com.example.htv11.ui.theme.Htv11Theme
 import kotlinx.coroutines.launch
 import org.maplibre.android.MapLibre
 
+fun isAccessibilityServiceEnabled(context: Context, serviceClass: Class<*>): Boolean {
+    val expectedComponentName = ComponentName(context, serviceClass)
+    val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
+    val enabledServices = am?.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK) ?: emptyList()
+    for (service in enabledServices) {
+        val serviceInfo = service.resolveInfo?.serviceInfo ?: continue
+        if (serviceInfo.packageName == expectedComponentName.packageName &&
+            serviceInfo.name == expectedComponentName.className) {
+            return true
+        }
+    }
+
+    try {
+        val enabledServicesSetting = Settings.Secure.getString(
+            context.contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: return false
+        val colonSplitter = TextUtils.SimpleStringSplitter(':')
+        colonSplitter.setString(enabledServicesSetting)
+        val flatExpected = expectedComponentName.flattenToString()
+        val flatShort = expectedComponentName.flattenToShortString()
+        while (colonSplitter.hasNext()) {
+            val component = colonSplitter.next()
+            if (component.equals(flatExpected, ignoreCase = true) ||
+                component.equals(flatShort, ignoreCase = true)) {
+                return true
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("AccessibilityCheck", "Error checking accessibility setting", e)
+    }
+    return false
+}
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,6 +105,28 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             Htv11Theme {
+                val context = LocalContext.current
+                val lifecycleOwner = LocalLifecycleOwner.current
+
+                var isAccessibilityEnabled by remember {
+                    mutableStateOf(isAccessibilityServiceEnabled(context, VolumeDuressAccessibilityService::class.java))
+                }
+
+                DisposableEffect(lifecycleOwner) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_RESUME) {
+                            isAccessibilityEnabled = isAccessibilityServiceEnabled(
+                                context,
+                                VolumeDuressAccessibilityService::class.java
+                            )
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose {
+                        lifecycleOwner.lifecycle.removeObserver(observer)
+                    }
+                }
+
                 val prefs = remember { getSharedPreferences("htv11_prefs", MODE_PRIVATE) }
                 var isCheckingSession by remember { mutableStateOf(AuthManager.currentUser != null) }
                 var currentUser by remember { mutableStateOf(AuthManager.currentUser) }
@@ -514,6 +595,75 @@ class MainActivity : ComponentActivity() {
                                     AppTab.MAP -> GlassBuildingMapScreen(
                                         groupId = currentGroupId,
                                         modifier = Modifier.padding(innerPadding)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (!isAccessibilityEnabled) {
+                    Dialog(
+                        onDismissRequest = { /* Non-dismissible */ },
+                        properties = DialogProperties(
+                            dismissOnBackPress = false,
+                            dismissOnClickOutside = false,
+                            usePlatformDefaultWidth = false
+                        )
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFF020B1E)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            DynamicBlueGridBackground()
+
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(24.dp)
+                                    .background(Color(0xEE051C3B), RoundedCornerShape(20.dp))
+                                    .border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(20.dp))
+                                    .padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                Text(
+                                    text = "ACCESSIBILITY ACCESS REQUIRED",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF00FFCC),
+                                    textAlign = TextAlign.Center
+                                )
+
+                                Text(
+                                    text = "KAZE Mesh requires full accessibility control for the silent volume button duress alarm to work.\n\nTo use the app, you must go to system settings and give KAZE Mesh full access.",
+                                    fontSize = 14.sp,
+                                    color = Color.White,
+                                    textAlign = TextAlign.Center
+                                )
+
+                                Button(
+                                    onClick = {
+                                        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                        }
+                                        context.startActivity(intent)
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(50.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF00E5FF),
+                                        contentColor = Color(0xFF020B1E)
+                                    )
+                                ) {
+                                    Text(
+                                        text = "Go to Settings ->",
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
                             }

@@ -4,8 +4,6 @@ import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
-import com.google.firebase.database.MutableData
-import com.google.firebase.database.Transaction
 import com.google.firebase.database.ValueEventListener
 
 object UserRepository {
@@ -125,18 +123,31 @@ object UserRepository {
             onResult(false)
             return
         }
-        val profileData = mapOf<String, Any>(
-            "id" to member.id,
-            "name" to member.name,
-            "isOnline" to member.isOnline,
-            "status" to member.status.ifBlank { "safe" }
-        )
+        val userNodeRef = usersRef.child(member.id)
+        userNodeRef.child("status").get().addOnCompleteListener { task ->
+            val existingStatus = if (task.isSuccessful && task.result.exists()) {
+                task.result?.getValue(String::class.java)
+            } else null
 
-        usersRef.child(member.id).updateChildren(profileData).addOnCompleteListener { saveTask ->
-            if (!saveTask.isSuccessful) {
-                println("RTDB SAVE FAILED: ${saveTask.exception?.message}")
+            val profileData = mutableMapOf<String, Any>(
+                "id" to member.id,
+                "name" to member.name,
+                "isOnline" to member.isOnline
+            )
+            if (!existingStatus.isNullOrBlank()) {
+                profileData["status"] = existingStatus
+            } else if (member.status.isNotBlank()) {
+                profileData["status"] = member.status
+            } else {
+                profileData["status"] = SafetyStatus.SAFE.key
             }
-            onResult(saveTask.isSuccessful)
+
+            userNodeRef.updateChildren(profileData).addOnCompleteListener { saveTask ->
+                if (!saveTask.isSuccessful) {
+                    println("RTDB SAVE FAILED: ${saveTask.exception?.message}")
+                }
+                onResult(saveTask.isSuccessful)
+            }
         }
     }
 
@@ -186,19 +197,26 @@ object UserRepository {
 
     fun nudgeUser(targetUserId: String) {
         if (targetUserId.isBlank()) return
-        val target = usersRef.child(targetUserId)
+        val statusRef = usersRef.child(targetUserId).child("status")
 
-        // A nudge puts someone to "unsure" until they answer, but must never hide an active danger status.
-        target.child("status").runTransaction(object : Transaction.Handler {
-            override fun doTransaction(currentData: MutableData): Transaction.Result {
-                if (currentData.getValue(String::class.java) != SafetyStatus.DANGER.key) {
-                    currentData.value = SafetyStatus.UNSURE.key
-                }
-                return Transaction.success(currentData)
+        statusRef.get().addOnCompleteListener { task ->
+            val currentStatus = if (task.isSuccessful && task.result.exists()) {
+                task.result?.getValue(String::class.java)
+            } else null
+
+            val newStatus = when (currentStatus?.lowercase()) {
+                SafetyStatus.SAFE.key -> SafetyStatus.UNSURE.key
+                SafetyStatus.UNSURE.key -> SafetyStatus.UNSURE.key
+                SafetyStatus.DANGER.key -> SafetyStatus.DANGER.key
+                else -> SafetyStatus.SAFE.key
             }
 
-            override fun onComplete(error: DatabaseError?, committed: Boolean, currentData: DataSnapshot?) {}
-        })
+            statusRef.setValue(newStatus).addOnCompleteListener { writeTask ->
+                if (!writeTask.isSuccessful) {
+                    println("RTDB NUDGE FAILED: ${writeTask.exception?.message}")
+                }
+            }
+        }
     }
 
     fun setStatus(userId: String, status: SafetyStatus) {
