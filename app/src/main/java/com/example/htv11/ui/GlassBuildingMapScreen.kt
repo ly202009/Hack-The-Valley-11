@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color as AndroidColor
 import android.graphics.Paint
@@ -27,7 +28,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.example.htv11.GroupLocation
+import com.example.htv11.GroupMember
+import com.example.htv11.LocationRepository
 import com.example.htv11.R
+import com.example.htv11.UserRepository
 import com.example.htv11.location.AltitudeFusion
 import com.example.htv11.location.BarometerReader
 import com.example.htv11.location.FloorClassification
@@ -40,6 +45,7 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.google.gson.JsonObject
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -68,14 +74,18 @@ private const val LOCATION_UPDATE_INTERVAL_MS = 1500L
 
 private const val GHOST_SOURCE_ID = "kaze-ghost-source"
 private const val GHOST_LAYER_ID = "kaze-ghost-layer"
-private const val GHOST_ICON_ID = "kaze-ghost-icon"
+private const val GHOST_ICON_GROUND_ID = "kaze-ghost-ground"
+private const val GHOST_ICON_UNDERGROUND_ID = "kaze-ghost-underground"
+private const val GHOST_ICON_UNCERTAIN_ID = "kaze-ghost-uncertain"
 private const val GHOST_ICON_SIZE_PX = 120
 private const val CAUTION_BADGE_COLOR = "#FFC107"
 private const val UNDERGROUND_FILL_COLOR = "#4A4F57"
 private const val UNDERGROUND_STROKE_COLOR = "#9AA1AA"
+// Same red MemberCard already uses for status == "danger" in the group list.
+private const val UNSAFE_GLOW_COLOR = "#FF5252"
 
 @Composable
-fun GlassBuildingMapScreen(modifier: Modifier = Modifier) {
+fun GlassBuildingMapScreen(userId: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -137,8 +147,11 @@ fun GlassBuildingMapScreen(modifier: Modifier = Modifier) {
     val elevationClient = remember { ElevationLookupClient() }
     val altitudeFusion = remember { AltitudeFusion() }
 
-    // The sensor loopback: GPS + barometer + MapTiler ground-truth elevation,
-    // fused into a floor classification, pushed straight into the ghost marker.
+    // This device's own sensor loopback: GPS + barometer + MapTiler ground-truth
+    // elevation, fused into a floor classification, pushed to Firebase. Rendering
+    // doesn't happen here — it comes back through the group-locations listener
+    // below, same as everyone else's, so there's no special-casing to show
+    // yourself.
     LaunchedEffect(loadedStyle, hasLocationPermission) {
         val style = loadedStyle ?: return@LaunchedEffect
         if (!hasLocationPermission) return@LaunchedEffect
@@ -149,7 +162,23 @@ fun GlassBuildingMapScreen(modifier: Modifier = Modifier) {
             }
         }
 
+        var lastLoggedLocation: Location? = null
+
         rawLocationUpdates(context).collect { location ->
+            // TEMPORARY diagnostic logging for the position-jitter investigation.
+            // Remove once we've picked and implemented a fix.
+            val accuracy = if (location.hasAccuracy()) location.accuracy else null
+            val movedMeters = lastLoggedLocation?.let { prev ->
+                val results = FloatArray(1)
+                Location.distanceBetween(prev.latitude, prev.longitude, location.latitude, location.longitude, results)
+                results[0]
+            }
+            Log.d(
+                "PositionJitter",
+                "lat=${location.latitude} lng=${location.longitude} accuracy=$accuracy movedMeters=$movedMeters"
+            )
+            lastLoggedLocation = location
+
             val groundTruth = elevationClient.groundElevationMeters(
                 latitude = location.latitude,
                 longitude = location.longitude,
@@ -161,17 +190,44 @@ fun GlassBuildingMapScreen(modifier: Modifier = Modifier) {
                 hasBarometerHardware = barometerReader.hasBarometerHardware
             )
 
-            updateGhostAvatar(
-                style = style,
-                context = context,
-                ghostLocation = GhostLocation(
-                    latitude = location.latitude,
-                    longitude = location.longitude,
-                    clampedAltitudeMeters = fused.clampedAltitudeMeters,
-                    classification = fused.classification
-                )
+            LocationRepository.pushLocation(
+                userId = userId,
+                latitude = location.latitude,
+                longitude = location.longitude,
+                clampedAltitudeMeters = fused.clampedAltitudeMeters,
+                classification = fused.classification
             )
         }
+    }
+
+    // Read path: everyone's current location (ours included, via the node we
+    // just wrote to above) -> rendered as markers. Foreground-only, same as the
+    // pipeline above — the listener is torn down when this screen leaves
+    // composition, same lifecycle the GPS/barometer collection already has.
+    var groupLocations by remember { mutableStateOf<List<GroupLocation>>(emptyList()) }
+
+    DisposableEffect(Unit) {
+        val listener = LocationRepository.observeAllLocations { locations ->
+            groupLocations = locations
+        }
+        onDispose { LocationRepository.removeObserver(listener) }
+    }
+
+    // Status (safe/unsure/danger) lives in a separate UUID/{userId} node from
+    // location — same reasoning as keeping locations separate from GroupMember:
+    // this is just a read, so it doesn't reintroduce that write-collision problem.
+    var groupMembers by remember { mutableStateOf<List<GroupMember>>(emptyList()) }
+
+    DisposableEffect(Unit) {
+        val listener = UserRepository.observeAllUsers { members ->
+            groupMembers = members
+        }
+        onDispose { UserRepository.removeObserver(listener) }
+    }
+
+    LaunchedEffect(loadedStyle, groupLocations, groupMembers) {
+        val style = loadedStyle ?: return@LaunchedEffect
+        updateGhostAvatars(style, groupLocations, groupMembers)
     }
 
     AndroidView(
@@ -263,23 +319,16 @@ private fun addBuilding3DLayer(style: Style) {
     )
 }
 
-// --- Ghost avatar: sensor -> fusion -> Canvas bitmap -> GeoJsonSource -------
-
-private data class GhostLocation(
-    val latitude: Double,
-    val longitude: Double,
-    val clampedAltitudeMeters: Double,
-    val classification: FloorClassification
-)
+// --- Ghost avatars: group locations -> Canvas bitmaps -> GeoJsonSource -----
 
 // IMPORTANT, verified against this project's actual android-sdk 13.7.1 jar:
 // MapLibre Native's SymbolLayer/PropertyFactory on Android has no elevation or
 // height-offset property (that's a MapLibre GL JS-only feature, gated behind a
 // terrain source — it doesn't exist in this native SDK version). Point.fromLngLat
 // below DOES store the Z value on the GeoJSON geometry (correct, ready for a
-// future Firebase payload), but MapLibre Android will not use it to move the
-// icon up/down on screen. The gray-out / caution-badge treatment below is the
-// actual visual communication of floor state here, not vertical position.
+// richer future payload), but MapLibre Android will not use it to move the icon
+// up/down on screen. The gray-out / caution-badge treatment is the actual visual
+// communication of floor state here, not vertical position.
 @SuppressLint("MissingPermission") // caller gates this behind a granted runtime permission check
 private fun rawLocationUpdates(context: Context): Flow<Location> = callbackFlow {
     val client = LocationServices.getFusedLocationProviderClient(context)
@@ -297,6 +346,15 @@ private fun rawLocationUpdates(context: Context): Flow<Location> = callbackFlow 
     awaitClose { client.removeLocationUpdates(callback) }
 }
 
+private fun iconIdFor(classification: FloorClassification, isUnsafe: Boolean): String {
+    val base = when (classification) {
+        FloorClassification.CONFIDENT_GROUND -> GHOST_ICON_GROUND_ID
+        FloorClassification.CONFIDENT_UNDERGROUND -> GHOST_ICON_UNDERGROUND_ID
+        FloorClassification.UNCERTAIN -> GHOST_ICON_UNCERTAIN_ID
+    }
+    return if (isUnsafe) "$base-unsafe" else base
+}
+
 private fun addGhostAvatarLayer(style: Style, context: Context) {
     if (style.getLayer(GHOST_LAYER_ID) != null) return
 
@@ -304,13 +362,21 @@ private fun addGhostAvatarLayer(style: Style, context: Context) {
         style.addSource(GeoJsonSource(GHOST_SOURCE_ID))
     }
 
-    // Seed a default (confident-ground) icon so the layer has something to
-    // reference before the first fused reading arrives.
-    style.addImage(GHOST_ICON_ID, createGhostAvatarBitmap(context, FloorClassification.CONFIDENT_GROUND))
+    // One bitmap per (classification, isUnsafe) combo, registered once — which
+    // bitmap a given marker uses is a per-feature "iconId" property (see
+    // updateGhostAvatars), not something we regenerate on every update.
+    FloorClassification.entries.forEach { classification ->
+        listOf(false, true).forEach { isUnsafe ->
+            style.addImage(
+                iconIdFor(classification, isUnsafe),
+                createGhostAvatarBitmap(context, classification, isUnsafe)
+            )
+        }
+    }
 
     style.addLayer(
         SymbolLayer(GHOST_LAYER_ID, GHOST_SOURCE_ID).withProperties(
-            PropertyFactory.iconImage(GHOST_ICON_ID),
+            PropertyFactory.iconImage(Expression.get("iconId")),
             // Fixed value, no zoom-stop expression: stays a constant pixel size
             // on screen regardless of zoom level.
             PropertyFactory.iconSize(1f),
@@ -320,18 +386,34 @@ private fun addGhostAvatarLayer(style: Style, context: Context) {
     )
 }
 
-private fun updateGhostAvatar(style: Style, context: Context, ghostLocation: GhostLocation) {
-    val bitmap = createGhostAvatarBitmap(context, ghostLocation.classification)
-    style.addImage(GHOST_ICON_ID, bitmap) // addImage on an existing id replaces it in place
+private fun updateGhostAvatars(
+    style: Style,
+    groupLocations: List<GroupLocation>,
+    groupMembers: List<GroupMember>
+) {
+    val statusByUserId = groupMembers.associateBy({ it.id }, { it.status })
 
-    val point = Point.fromLngLat(ghostLocation.longitude, ghostLocation.latitude, ghostLocation.clampedAltitudeMeters)
-    val featureCollection = FeatureCollection.fromFeature(Feature.fromGeometry(point))
+    val features = groupLocations.map { location ->
+        val status = statusByUserId[location.userId]?.ifBlank { "safe" } ?: "safe"
+        val isUnsafe = status.equals("danger", ignoreCase = true)
 
-    // TODO: Wire payload to Firebase later
-    (style.getSource(GHOST_SOURCE_ID) as? GeoJsonSource)?.setGeoJson(featureCollection)
+        val point = Point.fromLngLat(location.longitude, location.latitude, location.clampedAltitudeMeters)
+        val properties = JsonObject().apply {
+            addProperty("userId", location.userId)
+            addProperty("iconId", iconIdFor(location.classification, isUnsafe))
+        }
+        Feature.fromGeometry(point, properties)
+    }
+
+    // TODO: name label per marker — nice follow-up, not required for this pass.
+    (style.getSource(GHOST_SOURCE_ID) as? GeoJsonSource)?.setGeoJson(FeatureCollection.fromFeatures(features))
 }
 
-private fun createGhostAvatarBitmap(context: Context, classification: FloorClassification): Bitmap {
+private fun createGhostAvatarBitmap(
+    context: Context,
+    classification: FloorClassification,
+    isUnsafe: Boolean
+): Bitmap {
     val bitmap = Bitmap.createBitmap(GHOST_ICON_SIZE_PX, GHOST_ICON_SIZE_PX, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
 
@@ -341,6 +423,18 @@ private fun createGhostAvatarBitmap(context: Context, classification: FloorClass
 
     val fillColor = if (isUnderground) UNDERGROUND_FILL_COLOR else NightPalette.BUILDING_GLASS
     val strokeColor = if (isUnderground) UNDERGROUND_STROKE_COLOR else NightPalette.ACCENT
+
+    if (isUnsafe) {
+        // Soft blurred halo drawn first/underneath, so it reads as a glow
+        // around the avatar rather than a hard ring.
+        val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = AndroidColor.parseColor(UNSAFE_GLOW_COLOR)
+            style = Paint.Style.STROKE
+            strokeWidth = 16f
+            maskFilter = BlurMaskFilter(18f, BlurMaskFilter.Blur.NORMAL)
+        }
+        canvas.drawCircle(center, center, avatarRadius, glowPaint)
+    }
 
     val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = AndroidColor.parseColor(fillColor)
@@ -354,6 +448,17 @@ private fun createGhostAvatarBitmap(context: Context, classification: FloorClass
 
     canvas.drawCircle(center, center, avatarRadius, fillPaint)
     canvas.drawCircle(center, center, avatarRadius, strokePaint)
+
+    if (isUnsafe) {
+        // Crisp ring on top of the blurred halo so the red reads clearly even
+        // where the blur alone would look too soft.
+        val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = AndroidColor.parseColor(UNSAFE_GLOW_COLOR)
+            style = Paint.Style.STROKE
+            strokeWidth = 4f
+        }
+        canvas.drawCircle(center, center, avatarRadius, ringPaint)
+    }
 
     // Badge only for the uncertain state — confident-ground gets nothing,
     // confident-underground is communicated purely by the gray-out above.

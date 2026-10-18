@@ -147,6 +147,7 @@ class MainActivity : ComponentActivity() {
                                 )
 
                                 AppTab.MAP -> GlassBuildingMapScreen(
+                                    userId = activeUser.uid,
                                     modifier = Modifier.padding(innerPadding)
                                 )
                             }
