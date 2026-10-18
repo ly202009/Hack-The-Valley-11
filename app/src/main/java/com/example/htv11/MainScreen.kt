@@ -162,11 +162,9 @@ fun MainGroupScreen(
                 key = { "squad_${it.id}" }
             ) { member ->
                 val isSelf = member.name.equals(currentUserName, ignoreCase = true) || (member.id.isNotBlank() && member.id == AuthManager.currentUser?.uid)
-                val distanceForCard = if (isSelf) {
-                    netDistances.values.minOrNull()
-                } else {
-                    netDistances[member.id]
-                }
+                // "Distance to yourself" is meaningless — the group-bubble/nearest-teammate logic
+                // lives independently in MainActivity and doesn't read this value either way.
+                val distanceForCard = if (isSelf) null else netDistances[member.id]
                 val isMaskedSafe = maskedSafeUserIds.contains(member.id)
                 MemberCard(
                     member = member,

@@ -14,6 +14,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,11 +22,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -84,7 +84,6 @@ fun RegistrationScreen(
 
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
-    val scrollState = rememberScrollState()
 
     val attemptJoinGroup: () -> Unit = {
         focusManager.clearFocus()
@@ -126,15 +125,17 @@ fun RegistrationScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         DynamicBlueGridBackground()
 
-        Column(
+        // Same scrolling mechanism as the group view (LazyColumn), not a plain
+        // Column + verticalScroll — kept identical on purpose.
+        LazyColumn(
             modifier = modifier
                 .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(horizontal = 24.dp)
-                .padding(top = 48.dp, bottom = 32.dp),
-            verticalArrangement = Arrangement.Top,
+                .padding(horizontal = 24.dp),
+            contentPadding = PaddingValues(top = 48.dp, bottom = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            item {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = if (currentDisplayName.isNullOrBlank()) "KAZE MESH" else "SOLO MODE",
                 fontSize = 32.sp,
@@ -359,6 +360,8 @@ fun RegistrationScreen(
                     onAddContactClick = onAddEmergencyContactClick
                 )
             }
+            } // end Column
+            } // end item
         }
 
         // User Settings entry point — same badge MainGroupScreen uses, same destination.
