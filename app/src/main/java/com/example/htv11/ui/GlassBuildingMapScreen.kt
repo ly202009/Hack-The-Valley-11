@@ -357,10 +357,17 @@ private fun updateGhostAvatars(
 
         val photoBitmap = photoBitmaps[location.userId]
         val iconId = if (photoBitmap != null) {
-            val id = photoIconIdFor(location.userId, location.classification, isUnsafe)
-            // Cheap to re-register every update; MapLibre just overwrites the same id.
-            style.addImage(id, compositePhotoAvatarBitmap(context, photoBitmap, location.classification, isUnsafe))
-            id
+            // A bad/corrupted cached bitmap should never crash the whole map — fall back to
+            // the generic icon for this member instead, same as if no photo existed at all.
+            try {
+                val id = photoIconIdFor(location.userId, location.classification, isUnsafe)
+                // Cheap to re-register every update; MapLibre just overwrites the same id.
+                style.addImage(id, compositePhotoAvatarBitmap(context, photoBitmap, location.classification, isUnsafe))
+                id
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to composite/register photo avatar for ${location.userId}: ${e.message}")
+                iconIdFor(location.classification, isUnsafe)
+            }
         } else {
             iconIdFor(location.classification, isUnsafe)
         }
@@ -379,17 +386,26 @@ private fun updateGhostAvatars(
 
 /** Fetches and decodes [url] into a bitmap already cropped/scaled to a [sizePx] square. */
 private suspend fun loadSquareBitmap(context: Context, url: String, sizePx: Int): Bitmap? {
-    val loader = ImageLoader(context)
-    val request = ImageRequest.Builder(context)
-        .data(url)
-        .size(sizePx, sizePx)
-        .scale(Scale.FILL)
-        .allowHardware(false) // need a software bitmap to draw into a Canvas below
-        .build()
+    // A photoUrl is whatever someone pasted into the RTDB console — not every link is actually
+    // a directly-loadable image (a webpage, a hotlink-blocked page, a dead link, a decode
+    // failure). None of that should ever be able to crash the app; worst case, no photo loads
+    // and the member just keeps their generic icon.
+    return try {
+        val loader = ImageLoader(context)
+        val request = ImageRequest.Builder(context)
+            .data(url)
+            .size(sizePx, sizePx)
+            .scale(Scale.FILL)
+            .allowHardware(false) // need a software bitmap to draw into a Canvas below
+            .build()
 
-    val result = loader.execute(request)
-    val drawable = (result as? SuccessResult)?.drawable ?: return null
-    return drawable.toBitmap(sizePx, sizePx)
+        val result = loader.execute(request)
+        val drawable = (result as? SuccessResult)?.drawable ?: return null
+        drawable.toBitmap(sizePx, sizePx)
+    } catch (e: Exception) {
+        Log.w(TAG, "Failed to load photo from $url: ${e.message}")
+        null
+    }
 }
 
 /** Same ring/glow/caution treatment as [createGhostAvatarBitmap], with a real photo as the fill. */
