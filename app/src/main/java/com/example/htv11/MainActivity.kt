@@ -13,6 +13,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import com.example.htv11.ui.theme.Htv11Theme
+import com.google.firebase.database.ValueEventListener
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -72,6 +73,7 @@ class MainActivity : ComponentActivity() {
                             val activeUser = currentUser!!
                             val displayName = activeUser.displayName?.ifBlank { "Operative" } ?: "Operative"
                             var members by remember { mutableStateOf<List<GroupMember>>(emptyList()) }
+                            var isProfileLoaded by remember { mutableStateOf(false) }
 
                             // Sync user profile and listen for updates from RTDB
                             DisposableEffect(activeUser.uid) {
@@ -84,29 +86,45 @@ class MainActivity : ComponentActivity() {
                                     isOnline = true,
                                     status = "safe"
                                 )
-                                UserRepository.saveUser(self)
-                                UserRepository.setOnlineStatus(activeUser.uid, true)
+                                UserRepository.saveUser(self) { success ->
+                                    if (success) {
+                                        UserRepository.setOnlineStatus(activeUser.uid, true)
+                                    }
+                                }
 
-                                val listener = UserRepository.observeAllUsers { liveMembers ->
-                                    members = liveMembers
+                                var listener: ValueEventListener? = null
+                                listener = UserRepository.observeAllUsers { liveMembers ->
+                                    // Filter ghost users (profiles with blank ID or name)
+                                    val validMembers = liveMembers.filter { it.id.isNotBlank() && it.name.isNotBlank() }
+                                    members = validMembers
+
+                                    // If user profile is not found in RTDB after initial load, pause updates & return to entry screen
+                                    if (isProfileLoaded && validMembers.none { it.id == activeUser.uid }) {
+                                        listener?.let { UserRepository.removeObserver(it) }
+                                        UserRepository.setOnlineStatus(activeUser.uid, false)
+                                        AuthManager.signOut()
+                                        currentUser = null
+                                    } else if (validMembers.any { it.id == activeUser.uid }) {
+                                        isProfileLoaded = true
+                                    }
                                 }
 
                                 onDispose {
-                                    UserRepository.removeObserver(listener)
-                                    UserRepository.setOnlineStatus(activeUser.uid, false)
+                                    listener?.let { UserRepository.removeObserver(it) }
+                                    if (currentUser != null) {
+                                        UserRepository.setOnlineStatus(activeUser.uid, false)
+                                    }
                                 }
                             }
-                            var handledNudge by remember { mutableLongStateOf(PinStore.lastHandledNudge(this)) }
+
                             val myMember = members.firstOrNull { it.id == activeUser.uid }
-                            val myNudge = myMember?.lastNudged ?: 0L
                             val myStatus = SafetyStatus.fromKey(myMember?.status)
 
-                            val shouldShowPinPrompt = (myStatus == SafetyStatus.UNSURE) || (myNudge > handledNudge)
+                            val shouldShowPinPrompt = (myStatus == SafetyStatus.UNSURE)
 
                             if (shouldShowPinPrompt) {
                                 NudgePinDialog(
                                     onSubmit = { pin ->
-                                        // Both valid PINs close the dialog identically; only the stored status differs.
                                         val status = when (PinStore.check(pin)) {
                                             PinResult.NORMAL -> SafetyStatus.SAFE
                                             PinResult.DURESS -> SafetyStatus.DANGER
@@ -114,10 +132,6 @@ class MainActivity : ComponentActivity() {
                                         }
                                         if (status != null) {
                                             UserRepository.setStatus(activeUser.uid, status)
-                                            if (myNudge > 0L) {
-                                                PinStore.setLastHandledNudge(this, myNudge)
-                                                handledNudge = myNudge
-                                            }
                                         }
                                         status != null
                                     }
@@ -127,7 +141,6 @@ class MainActivity : ComponentActivity() {
                             var emergencyContacts by remember { mutableStateOf<List<EmergencyContact>>(emptyList()) }
 
                             DisposableEffect(activeUser.uid) {
-                                // Listen to real emergency contacts
                                 val contactListener = UserRepository.observeEmergencyContacts(activeUser.uid) { liveContacts ->
                                     emergencyContacts = liveContacts
                                 }

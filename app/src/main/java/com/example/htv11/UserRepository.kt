@@ -14,18 +14,33 @@ object UserRepository {
     private val usersRef: DatabaseReference = FirebaseDatabase.getInstance(db).getReference("UUID")
 
     fun saveUser(member: GroupMember, onResult: (Boolean) -> Unit = {}) {
-        // Only the profile fields: overwriting the whole node would reset status and lastNudged on every login.
-        val profile = mapOf("id" to member.id, "name" to member.name, "isOnline" to member.isOnline)
-        usersRef.child(member.id).updateChildren(profile)
-            .addOnCompleteListener { task ->
-                if (!task.isSuccessful) {
-                    println("RTDB SAVE FAILED: ${task.exception?.message}")
-                }
-                onResult(task.isSuccessful)
+        if (member.id.isBlank()) {
+            onResult(false)
+            return
+        }
+        val userNodeRef = usersRef.child(member.id)
+        userNodeRef.child("status").get().addOnCompleteListener { task ->
+            val existingStatus = if (task.isSuccessful) task.result.getValue(String::class.java) else null
+            val profile = mutableMapOf<String, Any>(
+                "id" to member.id,
+                "name" to member.name,
+                "isOnline" to member.isOnline
+            )
+            // Ensure status field is created if profile/status does not exist yet
+            if (existingStatus.isNullOrBlank()) {
+                profile["status"] = member.status.ifBlank { "safe" }
             }
+            userNodeRef.updateChildren(profile).addOnCompleteListener { saveTask ->
+                if (!saveTask.isSuccessful) {
+                    println("RTDB SAVE FAILED: ${saveTask.exception?.message}")
+                }
+                onResult(saveTask.isSuccessful)
+            }
+        }
     }
 
     fun setOnlineStatus(userId: String, isOnline: Boolean) {
+        if (userId.isBlank()) return
         val statusRef = usersRef.child(userId).child("isOnline")
         statusRef.setValue(isOnline)
         statusRef.onDisconnect().setValue(false)
@@ -42,7 +57,10 @@ object UserRepository {
                             if (member.id.isBlank()) {
                                 member.id = child.key ?: ""
                             }
-                            list.add(member)
+                            // Filter ghost users (profiles with blank ID or blank name)
+                            if (member.id.isNotBlank() && member.name.isNotBlank()) {
+                                list.add(member)
+                            }
                         }
                     } catch (e: Exception) {
                         println("Error parsing GroupMember snapshot: ${e.message}")
@@ -65,8 +83,8 @@ object UserRepository {
     }
 
     fun nudgeUser(targetUserId: String) {
+        if (targetUserId.isBlank()) return
         val target = usersRef.child(targetUserId)
-        target.child("lastNudged").setValue(System.currentTimeMillis())
 
         // A nudge puts someone to "unsure" until they answer, but must never hide an active danger status.
         target.child("status").runTransaction(object : Transaction.Handler {
@@ -82,6 +100,7 @@ object UserRepository {
     }
 
     fun setStatus(userId: String, status: SafetyStatus) {
+        if (userId.isBlank()) return
         usersRef.child(userId).child("status").setValue(status.key)
     }
 
@@ -92,6 +111,10 @@ object UserRepository {
         phoneNumber: String,
         onComplete: (Boolean) -> Unit = {}
     ) {
+        if (userId.isBlank() || name.isBlank()) {
+            onComplete(false)
+            return
+        }
         usersRef.child(userId)
             .child("emergency-contacts")
             .child(name)
@@ -102,6 +125,7 @@ object UserRepository {
 
     // Remove an emergency contact
     fun deleteEmergencyContact(userId: String, name: String) {
+        if (userId.isBlank() || name.isBlank()) return
         usersRef.child(userId)
             .child("emergency-contacts")
             .child(name)
@@ -119,7 +143,9 @@ object UserRepository {
                 for (child in snapshot.children) {
                     val name = child.key ?: ""
                     val phone = child.child("phone").getValue(String::class.java) ?: ""
-                    contacts.add(EmergencyContact(name = name, phone = phone))
+                    if (name.isNotBlank()) {
+                        contacts.add(EmergencyContact(name = name, phone = phone))
+                    }
                 }
                 onUpdate(contacts)
             }
@@ -127,12 +153,16 @@ object UserRepository {
             override fun onCancelled(error: DatabaseError) {}
         }
 
-        usersRef.child(userId).child("emergency-contacts").addValueEventListener(listener)
+        if (userId.isNotBlank()) {
+            usersRef.child(userId).child("emergency-contacts").addValueEventListener(listener)
+        }
         return listener
     }
 
     // Cleanup helper
     fun removeEmergencyContactsObserver(userId: String, listener: ValueEventListener) {
-        usersRef.child(userId).child("emergency-contacts").removeEventListener(listener)
+        if (userId.isNotBlank()) {
+            usersRef.child(userId).child("emergency-contacts").removeEventListener(listener)
+        }
     }
 }

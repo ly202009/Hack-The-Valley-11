@@ -41,7 +41,6 @@ data class GroupMember(
     var name: String = "",
     @get:PropertyName("isOnline") @set:PropertyName("isOnline")
     var isOnline: Boolean = true,
-    var lastNudged: Long = 0L,
     var status: String = "safe"
 )
 
@@ -60,7 +59,7 @@ fun MainGroupScreen(
     onAddEmergencyContactClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val validMembers = members.filter { it.id.isNotBlank() }.distinctBy { it.id }
+    val validMembers = members.filter { it.id.isNotBlank() && it.name.isNotBlank() }.distinctBy { it.id }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Reuse the background from RegistrationScreen
@@ -138,12 +137,12 @@ fun MainGroupScreen(
             }
 
             items(
-                items = members,
+                items = validMembers,
                 key = { "squad_${it.id}" }
             ) { member ->
                 MemberCard(
                     member = member,
-                    isSelf = member.name.equals(currentUserName, ignoreCase = true),
+                    isSelf = member.name.equals(currentUserName, ignoreCase = true) || (member.id.isNotBlank() && member.id == AuthManager.currentUser?.uid),
                     onNudgeClick = { onNudgeMember(member) }
                 )
             }
@@ -247,19 +246,12 @@ fun MemberCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                val statusStr = member.status.ifBlank { "safe" }.lowercase()
-                val (statusText, statusColor) = when (statusStr) {
-                    "danger" -> "Danger" to Color(0xFFFF5252)
-                    "unsure" -> "Unsure" to Color(0xFFFFC107)
-                    else -> "Safe" to Color(0xFF00FFCC)
-                }
-
-                // Glow dot
+                // Glow dot uses status.color so it stays green (0xFF00FFCC) when status is SAFE or facade cover
                 Box(
                     modifier = Modifier
                         .size(10.dp)
                         .background(
-                            color = statusColor,
+                            color = status.color,
                             shape = CircleShape
                         )
                 )
