@@ -108,7 +108,7 @@ object LocationHelper {
 
 /** The text sent to an emergency contact: who is in danger and where, with a map link. */
 fun buildDangerMessage(name: String, location: Location?, address: String?): String {
-    val who = "$name is in danger and needs help."
+    val who = "$name is sending you a discreet distress signal using Kaze Mesh. Please be mindful of calling this person, as they may not be able to answer safely right now. Here’s their last known location:"
     if (location == null) return "$who Their location is unavailable."
 
     val mapLink = "https://maps.google.com/?q=%.6f,%.6f".format(Locale.US, location.latitude, location.longitude)
