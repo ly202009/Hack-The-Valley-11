@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -26,7 +28,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -51,11 +55,14 @@ private const val SAFE_DISTANCE_SLIDER_STEPS =
 
 @Composable
 fun GroupSettingsScreen(
+    groupId: String,
+    groupName: String?,
     safeDistanceMeters: Float,
     onSafeDistanceChange: (Float) -> Unit,
     isSafeDistanceEnabled: Boolean,
     onToggleSafeDistanceEnabled: (Boolean) -> Unit,
     onClose: () -> Unit,
+    onLeaveGroupClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier.fillMaxSize()) {
@@ -95,7 +102,11 @@ fun GroupSettingsScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(20.dp))
+
+            GroupIdCard(groupId = groupId, groupName = groupName)
+
+            Spacer(modifier = Modifier.height(20.dp))
 
             SafeDistanceCard(
                 safeDistanceMeters = safeDistanceMeters,
@@ -103,6 +114,75 @@ fun GroupSettingsScreen(
                 isEnabled = isSafeDistanceEnabled,
                 onToggleEnabled = onToggleSafeDistanceEnabled
             )
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            Button(
+                onClick = onLeaveGroupClick,
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0x33FF5252),
+                    contentColor = Color(0xFFFF5252)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp)
+                    .border(1.dp, Color(0xFFFF5252), RoundedCornerShape(14.dp))
+            ) {
+                Text(
+                    text = "Leave Group",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GroupIdCard(groupId: String, groupName: String?) {
+    val clipboardManager = LocalClipboardManager.current
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(CARD_BACKGROUND, RoundedCornerShape(14.dp))
+            .border(1.dp, CARD_BORDER, RoundedCornerShape(14.dp))
+            .padding(horizontal = 16.dp, vertical = 16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = groupName?.ifBlank { null } ?: "Unnamed Squad",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White
+                )
+                Text(
+                    text = groupId,
+                    fontSize = 13.sp,
+                    color = SECONDARY_TEXT
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .border(1.dp, ACCENT, CircleShape)
+                    .clickable { clipboardManager.setText(AnnotatedString(groupId)) },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_copy),
+                    contentDescription = "Copy group ID",
+                    tint = ACCENT,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
         }
     }
 }
@@ -193,11 +273,14 @@ private fun SafeDistanceCard(
 private fun GroupSettingsScreenPreview() {
     Htv11Theme {
         GroupSettingsScreen(
+            groupId = "KZ-8391",
+            groupName = "Night Patrol",
             safeDistanceMeters = 25f,
             onSafeDistanceChange = {},
             isSafeDistanceEnabled = true,
             onToggleSafeDistanceEnabled = {},
-            onClose = {}
+            onClose = {},
+            onLeaveGroupClick = {}
         )
     }
 }

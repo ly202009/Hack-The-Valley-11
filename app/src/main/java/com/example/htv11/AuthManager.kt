@@ -11,6 +11,17 @@ object AuthManager {
     val currentUser: FirebaseUser?
         get() = auth.currentUser
 
+    /** Ensures the user is authenticated anonymously before making database calls. */
+    fun ensureAuth(onComplete: (Boolean) -> Unit) {
+        if (auth.currentUser != null) {
+            onComplete(true)
+        } else {
+            auth.signInAnonymously().addOnCompleteListener { task ->
+                onComplete(task.isSuccessful)
+            }
+        }
+    }
+
     /**
      * Checks Firebase servers to confirm the locally cached user actually exists.
      * If deleted on the console/backend, it wipes the local session.

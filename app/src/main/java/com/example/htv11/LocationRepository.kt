@@ -9,9 +9,6 @@ import com.google.firebase.database.ValueEventListener
 
 private const val DATABASE_URL = "https://squad-mesh-default-rtdb.firebaseio.com"
 
-// Firebase POJO for the locations/{userId} node. Kept separate from
-// GroupMember/UserRepository on purpose: GPS ticks every ~1.5s and would
-// otherwise also fire MainGroupScreen's member-list listener on every update.
 data class LocationRecord(
     var latitude: Double = 0.0,
     var longitude: Double = 0.0,
@@ -28,6 +25,7 @@ data class GroupLocation(
 )
 
 object LocationRepository {
+    // Flat and global, same as users/{uid} — a location isn't scoped to any particular group.
     private val locationsRef: DatabaseReference =
         FirebaseDatabase.getInstance(DATABASE_URL).getReference("locations")
 

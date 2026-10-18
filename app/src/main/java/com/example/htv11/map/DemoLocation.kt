@@ -8,5 +8,5 @@ object DemoLocation {
     const val SAM_IBRAHIM_LAT = 43.7883053
     const val SAM_IBRAHIM_LNG = -79.1904167
     const val BOOT_ZOOM = 18.0
-    const val BOOT_PITCH = 65.0
+    const val BOOT_PITCH = 60.0
 }

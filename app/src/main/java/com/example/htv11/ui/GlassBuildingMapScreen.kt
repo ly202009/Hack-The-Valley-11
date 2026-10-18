@@ -70,7 +70,10 @@ private const val UNSAFE_GLOW_COLOR = "#FF5252"
 // Firebase state and draws it, same as it already did for everyone else's
 // markers, now including its own.
 @Composable
-fun GlassBuildingMapScreen(modifier: Modifier = Modifier) {
+fun GlassBuildingMapScreen(
+    groupId: String = "DEFAULT_SQUAD",
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -110,8 +113,8 @@ fun GlassBuildingMapScreen(modifier: Modifier = Modifier) {
         }
     }
 
-    // Read path: everyone's current location (ours included, pushed by the
-    // pipeline in MainActivity) -> rendered as markers.
+    // Read path: every user's current location is global (locations/{userId}, not scoped to a
+    // group), so this screen filters down to just the current group's roster before rendering.
     var groupLocations by remember { mutableStateOf<List<GroupLocation>>(emptyList()) }
 
     DisposableEffect(Unit) {
@@ -121,16 +124,15 @@ fun GlassBuildingMapScreen(modifier: Modifier = Modifier) {
         onDispose { LocationRepository.removeObserver(listener) }
     }
 
-    // Status (safe/unsure/danger) lives in a separate UUID/{userId} node from
-    // location — same reasoning as keeping locations separate from GroupMember:
-    // this is just a read, so it doesn't reintroduce that write-collision problem.
+    // Status (safe/unsure/danger) lives on the flat users/{userId} profile, joined client-side
+    // with this group's membership roster.
     var groupMembers by remember { mutableStateOf<List<GroupMember>>(emptyList()) }
 
-    DisposableEffect(Unit) {
-        val listener = UserRepository.observeAllUsers { members ->
+    DisposableEffect(groupId) {
+        val subscription = UserRepository.observeGroupMembers(groupId) { members ->
             groupMembers = members
         }
-        onDispose { UserRepository.removeObserver(listener) }
+        onDispose { UserRepository.removeGroupMembersObserver(subscription) }
     }
 
     LaunchedEffect(loadedStyle, groupLocations, groupMembers) {
@@ -283,8 +285,11 @@ private fun updateGhostAvatars(
     groupMembers: List<GroupMember>
 ) {
     val statusByUserId = groupMembers.associateBy({ it.id }, { it.status })
+    val memberIds = statusByUserId.keys
 
-    val features = groupLocations.map { location ->
+    // locations/{userId} is global, not scoped to a group, so only render markers for people
+    // actually in this group's roster.
+    val features = groupLocations.filter { it.userId in memberIds }.map { location ->
         val status = statusByUserId[location.userId]?.ifBlank { "safe" } ?: "safe"
         val isUnsafe = status.equals("danger", ignoreCase = true)
 

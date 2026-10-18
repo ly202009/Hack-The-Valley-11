@@ -55,6 +55,7 @@ data class EmergencyContact(
 @Composable
 fun MainGroupScreen(
     currentUserName: String = "Daniel",
+    groupName: String? = null,
     members: List<GroupMember>,
     emergencyContacts: List<EmergencyContact> = emptyList(),
     onNudgeMember: (GroupMember) -> Unit = {},
@@ -106,7 +107,11 @@ fun MainGroupScreen(
                             )
                         }
                         Text(
-                            text = "Group Count: ${validMembers.size}",
+                            text = if (!groupName.isNullOrBlank()) {
+                                "$groupName  ·  Count: ${validMembers.size}"
+                            } else {
+                                "Group Count: ${validMembers.size}"
+                            },
                             fontSize = 13.sp,
                             color = Color(0xFF8BB5E2)
                         )
@@ -169,58 +174,79 @@ fun MainGroupScreen(
             // --- SECTION 2: EMERGENCY CONTACTS ---
             item {
                 Spacer(modifier = Modifier.height(20.dp))
-
-                // Title and "+" button on the exact same line
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "EMERGENCY CONTACTS",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-
-                    Button(
-                        onClick = onAddEmergencyContactClick,
-                        shape = CircleShape,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0x2200FFCC),
-                            contentColor = Color(0xFF00FFCC)
-                        ),
-                        contentPadding = PaddingValues(0.dp),
-                        modifier = Modifier
-                            .size(36.dp)
-                            .border(1.dp, Color(0xFF00FFCC), CircleShape)
-                    ) {
-                        Text(
-                            text = "+",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF00FFCC)
-                        )
-                    }
-                }
-
-                Text(
-                    text = "Contact Count: ${emergencyContacts.size}",
-                    fontSize = 13.sp,
-                    color = Color(0xFF8BB5E2)
+                EmergencyContactsSection(
+                    emergencyContacts = emergencyContacts,
+                    onContactClick = onEmergencyContactClick,
+                    onDeleteContactClick = onDeleteEmergencyContactClick,
+                    onAddContactClick = onAddEmergencyContactClick
                 )
-
-                Spacer(modifier = Modifier.height(8.dp))
             }
+        }
+    }
+}
 
-            items(
-                items = emergencyContacts,
-                key = { "emergency_${it.name}" }
-            ) { contact ->
-                EmergencyContactCard (
+/**
+ * The "EMERGENCY CONTACTS" header + add button + contact list, shared between the main squad
+ * screen and the pre-group registration/chooser screen — contacts are personal data (stored flat
+ * under the user, not the group), so they're visible either way.
+ */
+@Composable
+fun EmergencyContactsSection(
+    emergencyContacts: List<EmergencyContact>,
+    onContactClick: (EmergencyContact) -> Unit,
+    onDeleteContactClick: (EmergencyContact) -> Unit,
+    onAddContactClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        // Title and "+" button on the exact same line
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "EMERGENCY CONTACTS",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+
+            Button(
+                onClick = onAddContactClick,
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0x2200FFCC),
+                    contentColor = Color(0xFF00FFCC)
+                ),
+                contentPadding = PaddingValues(0.dp),
+                modifier = Modifier
+                    .size(36.dp)
+                    .border(1.dp, Color(0xFF00FFCC), CircleShape)
+            ) {
+                Text(
+                    text = "+",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF00FFCC)
+                )
+            }
+        }
+
+        Text(
+            text = "Contact Count: ${emergencyContacts.size}",
+            fontSize = 13.sp,
+            color = Color(0xFF8BB5E2)
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            emergencyContacts.forEach { contact ->
+                EmergencyContactCard(
                     contact = contact,
-                    onContactClick = { onEmergencyContactClick(contact) },
-                    onDeleteClick = { onDeleteEmergencyContactClick(contact) }
+                    onContactClick = { onContactClick(contact) },
+                    onDeleteClick = { onDeleteContactClick(contact) }
                 )
             }
         }
@@ -386,7 +412,7 @@ fun EmergencyContactCard(
                     modifier = Modifier.border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(8.dp))
                 ) {
                     Text(
-                        text = "Text",
+                        text = "Contact",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -402,6 +428,7 @@ fun MainGroupScreenPreview() {
     Htv11Theme {
         MainGroupScreen(
             currentUserName = "Daniel",
+            groupName = "KZ-1234",
             members = listOf(
                 GroupMember(id = "1", name = "Daniel", isOnline = true, status = "safe"),
                 GroupMember(id = "2", name = "Sean", isOnline = true, status = "safe"),
