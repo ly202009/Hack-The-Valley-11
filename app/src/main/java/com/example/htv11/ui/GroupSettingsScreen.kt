@@ -123,6 +123,8 @@ fun GroupSettingsScreen(
                 onToggleEnabled = onToggleSafeDistanceEnabled
             )
 
+            Spacer(modifier = Modifier.height(20.dp)) // Adjust to 24.dp or more if you want wider spacing
+
             ServerNudgeLengthCard()
             Spacer(modifier = Modifier.weight(1f))
 
