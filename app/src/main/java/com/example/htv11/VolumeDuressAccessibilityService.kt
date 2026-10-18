@@ -61,9 +61,9 @@ class VolumeDuressAccessibilityService : AccessibilityService() {
                 UserRepository.setStatus(currentUserId, SafetyStatus.DANGER)
                 Log.d(TAG, "Successfully updated status to danger in RTDB for user: $currentUserId")
 
-                // If nobody else is in the group, silently text the emergency contacts instead.
+                // Also silently text the emergency contacts, whoever else is in the group.
                 val userName = AuthManager.currentUser?.displayName?.ifBlank { null } ?: "Someone"
-                scope.launch { DistressAlert.sendIfAlone(applicationContext, currentUserId, userName) }
+                scope.launch { DistressAlert.send(applicationContext, userName) }
             } else {
                 Log.w(TAG, "No user ID found when duress triggered")
             }

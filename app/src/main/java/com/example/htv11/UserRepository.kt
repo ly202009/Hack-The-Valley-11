@@ -7,9 +7,6 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.MutableData
 import com.google.firebase.database.Transaction
 import com.google.firebase.database.ValueEventListener
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.coroutines.resume
 
 object UserRepository {
     private const val db = "https://squad-mesh-default-rtdb.firebaseio.com"
@@ -79,29 +76,6 @@ object UserRepository {
 
         usersRef.addValueEventListener(listener)
         return listener
-    }
-
-    /**
-     * How many real members besides [selfId] are in the group, or null if that can't be read
-     * (offline). Nameless entries are ghost profiles and don't count.
-     */
-    suspend fun countOtherMembers(selfId: String): Int? = withTimeoutOrNull(5_000L) {
-        suspendCancellableCoroutine<Int?> { continuation ->
-            val listener = object : ValueEventListener {
-                override fun onDataChange(snapshot: DataSnapshot) {
-                    val others = snapshot.children.count { child ->
-                        child.key != selfId && !child.child("name").getValue(String::class.java).isNullOrBlank()
-                    }
-                    if (continuation.isActive) continuation.resume(others)
-                }
-
-                override fun onCancelled(error: DatabaseError) {
-                    if (continuation.isActive) continuation.resume(null)
-                }
-            }
-            usersRef.addListenerForSingleValueEvent(listener)
-            continuation.invokeOnCancellation { usersRef.removeEventListener(listener) }
-        }
     }
 
     fun removeObserver(listener: ValueEventListener) {
