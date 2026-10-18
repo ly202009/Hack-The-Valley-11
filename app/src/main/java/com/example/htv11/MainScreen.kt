@@ -78,7 +78,7 @@ fun MainGroupScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 48.dp, bottom = 32.dp)
         ) {
-            // --- SECTION 1: KAZE SQUAD ---
+            // --- SECTION 1: KAZE MESH ---
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -91,7 +91,7 @@ fun MainGroupScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                text = "KAZE SQUAD",
+                                text = "KAZE MESH",
                                 fontSize = 26.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
