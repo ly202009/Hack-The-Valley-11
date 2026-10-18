@@ -344,8 +344,10 @@ class MainActivity : ComponentActivity() {
                                             UserRepository.setStatus(activeUser.uid, status)
                                         }
                                         if (status == SafetyStatus.DANGER) {
+                                            // This dialog only ever appears after a group nudge, so we're
+                                            // always in a group here — status is already flipped above.
                                             lifecycleScope.launch {
-                                                DistressAlert.sendIfAlone(this@MainActivity, currentGroupId, activeUser.uid, displayName)
+                                                DistressAlert.send(this@MainActivity, displayName)
                                             }
                                         }
                                         status != null

@@ -36,24 +36,24 @@ object EmergencyContactStore {
     }
 }
 
-/** What happens when the user signals distress and nobody in the group is there to see it. */
+/**
+ * What happens when the user signals distress. Always texts emergency contacts, whether or not
+ * they're in a group — whether the group also sees a flipped Danger status is the caller's call,
+ * not this function's (a solo user has no group to see it, so the caller skips that part).
+ */
 object DistressAlert {
     /**
-     * If the user is the only member of the group, silently texts every emergency contact with
-     * their location. Shows nothing on screen, and does nothing if the SMS permission, a contact
-     * or a recent send is missing, since asking for permission here would give the signal away.
+     * Silently texts every emergency contact with the user's location. Shows nothing on screen,
+     * and does nothing if the SMS permission, a contact or a recent send is missing, since asking
+     * for permission here would give the signal away.
      */
-    suspend fun sendIfAlone(context: Context, groupId: String, userId: String, userName: String) {
+    suspend fun send(context: Context, userName: String) {
         val contacts = EmergencyContactStore.load(context).filter { it.phone.isNotBlank() }
         if (contacts.isEmpty() || !hasSmsPermission(context)) return
 
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
         if (now - prefs.getLong(KEY_LAST_SENT, 0L) < COOLDOWN_MS) return
-
-        // null means the group couldn't be checked (offline), and then nobody would see the alert either.
-        val others = UserRepository.countOtherMembers(groupId, userId)
-        if (others != null && others > 0) return
 
         prefs.edit().putLong(KEY_LAST_SENT, now).apply()
 

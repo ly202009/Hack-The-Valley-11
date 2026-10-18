@@ -7,9 +7,6 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.MutableData
 import com.google.firebase.database.Transaction
 import com.google.firebase.database.ValueEventListener
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.coroutines.resume
 
 object UserRepository {
     private const val db = "https://squad-mesh-default-rtdb.firebaseio.com"
@@ -148,6 +145,43 @@ object UserRepository {
         val statusRef = usersRef.child(userId).child("isOnline")
         statusRef.setValue(isOnline)
         statusRef.onDisconnect().setValue(false)
+    }
+
+    /** Every registered user, globally, with no group scoping — not currently wired to any screen. */
+    fun observeAllUsers(onUpdate: (List<GroupMember>) -> Unit): ValueEventListener {
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val list = mutableListOf<GroupMember>()
+                for (child in snapshot.children) {
+                    try {
+                        val member = child.getValue(GroupMember::class.java)
+                        if (member != null) {
+                            if (member.id.isBlank()) {
+                                member.id = child.key ?: ""
+                            }
+                            // Filter ghost users (profiles with blank ID or blank name)
+                            if (member.id.isNotBlank() && member.name.isNotBlank()) {
+                                list.add(member)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        println("Error parsing GroupMember snapshot: ${e.message}")
+                    }
+                }
+                onUpdate(list)
+            }
+
+            override fun onCancelled(error: DatabaseError) {
+                // Empty handler
+            }
+        }
+
+        usersRef.addValueEventListener(listener)
+        return listener
+    }
+
+    fun removeObserver(listener: ValueEventListener) {
+        usersRef.removeEventListener(listener)
     }
 
     fun nudgeUser(targetUserId: String) {
@@ -313,25 +347,4 @@ object UserRepository {
         }
     }
 
-    /**
-     * How many real members besides [selfId] are in the group, or null if that can't be read
-     * (offline).
-     */
-    suspend fun countOtherMembers(groupId: String, selfId: String): Int? = withTimeoutOrNull(5_000L) {
-        val ref = membersRef(groupId)
-        suspendCancellableCoroutine<Int?> { continuation ->
-            val listener = object : ValueEventListener {
-                override fun onDataChange(snapshot: DataSnapshot) {
-                    val others = snapshot.children.count { child -> child.key != selfId }
-                    if (continuation.isActive) continuation.resume(others)
-                }
-
-                override fun onCancelled(error: DatabaseError) {
-                    if (continuation.isActive) continuation.resume(null)
-                }
-            }
-            ref.addListenerForSingleValueEvent(listener)
-            continuation.invokeOnCancellation { ref.removeEventListener(listener) }
-        }
-    }
 }
