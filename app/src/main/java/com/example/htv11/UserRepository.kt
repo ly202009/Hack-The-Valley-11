@@ -4,6 +4,8 @@ import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.MutableData
+import com.google.firebase.database.Transaction
 import com.google.firebase.database.ValueEventListener
 
 object UserRepository {
@@ -12,27 +14,15 @@ object UserRepository {
     private val usersRef: DatabaseReference = FirebaseDatabase.getInstance(db).getReference("UUID")
 
     fun saveUser(member: GroupMember, onResult: (Boolean) -> Unit = {}) {
-        val userMap = mutableMapOf<String, Any>(
-            "id" to member.id,
-            "name" to member.name,
-            "isOnline" to member.isOnline
-        )
-        usersRef.child(member.id).child("status").get().addOnSuccessListener { snapshot ->
-            if (!snapshot.exists() || snapshot.value == null || (snapshot.value as? String).isNullOrBlank()) {
-                userMap["status"] = member.status.ifBlank { "safe" }
-            }
-            usersRef.child(member.id).updateChildren(userMap).addOnCompleteListener { task ->
+        // Only the profile fields: overwriting the whole node would reset status and lastNudged on every login.
+        val profile = mapOf("id" to member.id, "name" to member.name, "isOnline" to member.isOnline)
+        usersRef.child(member.id).updateChildren(profile)
+            .addOnCompleteListener { task ->
                 if (!task.isSuccessful) {
                     println("RTDB SAVE FAILED: ${task.exception?.message}")
                 }
                 onResult(task.isSuccessful)
             }
-        }.addOnFailureListener {
-            userMap["status"] = member.status.ifBlank { "safe" }
-            usersRef.child(member.id).updateChildren(userMap).addOnCompleteListener { task ->
-                onResult(task.isSuccessful)
-            }
-        }
     }
 
     fun setOnlineStatus(userId: String, isOnline: Boolean) {
@@ -74,23 +64,75 @@ object UserRepository {
         usersRef.removeEventListener(listener)
     }
 
-    fun nudgeUser(targetUserId: String, currentStatus: String) {
+    fun nudgeUser(targetUserId: String) {
         val target = usersRef.child(targetUserId)
         target.child("lastNudged").setValue(System.currentTimeMillis())
 
-        if (currentStatus.lowercase() == "safe") {
-            target.child("status").setValue("unsure")
-        }
+        // A nudge puts someone to "unsure" until they answer, but must never hide an active danger status.
+        target.child("status").runTransaction(object : Transaction.Handler {
+            override fun doTransaction(currentData: MutableData): Transaction.Result {
+                if (currentData.getValue(String::class.java) != SafetyStatus.DANGER.key) {
+                    currentData.value = SafetyStatus.UNSURE.key
+                }
+                return Transaction.success(currentData)
+            }
+
+            override fun onComplete(error: DatabaseError?, committed: Boolean, currentData: DataSnapshot?) {}
+        })
     }
 
-    fun updateStatus(userId: String, status: String) {
-        usersRef.child(userId).child("status").setValue(status)
-            .addOnCompleteListener { task ->
-                if (task.isSuccessful) {
-                    println("RTDB UPDATE STATUS SUCCESS: $userId -> $status")
-                } else {
-                    println("RTDB UPDATE STATUS FAILED: ${task.exception?.message}")
+    fun setStatus(userId: String, status: SafetyStatus) {
+        usersRef.child(userId).child("status").setValue(status.key)
+    }
+
+    // Save or update an emergency contact
+    fun addEmergencyContact(
+        userId: String,
+        name: String,
+        phoneNumber: String,
+        onComplete: (Boolean) -> Unit = {}
+    ) {
+        usersRef.child(userId)
+            .child("emergency-contacts")
+            .child(name)
+            .child("phone")
+            .setValue(phoneNumber)
+            .addOnCompleteListener { task -> onComplete(task.isSuccessful) }
+    }
+
+    // Remove an emergency contact
+    fun deleteEmergencyContact(userId: String, name: String) {
+        usersRef.child(userId)
+            .child("emergency-contacts")
+            .child(name)
+            .removeValue()
+    }
+
+    // Live listener for the current user's emergency contacts
+    fun observeEmergencyContacts(
+        userId: String,
+        onUpdate: (List<EmergencyContact>) -> Unit
+    ): ValueEventListener {
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val contacts = mutableListOf<EmergencyContact>()
+                for (child in snapshot.children) {
+                    val name = child.key ?: ""
+                    val phone = child.child("phone").getValue(String::class.java) ?: ""
+                    contacts.add(EmergencyContact(name = name, phone = phone))
                 }
+                onUpdate(contacts)
             }
+
+            override fun onCancelled(error: DatabaseError) {}
+        }
+
+        usersRef.child(userId).child("emergency-contacts").addValueEventListener(listener)
+        return listener
+    }
+
+    // Cleanup helper
+    fun removeEmergencyContactsObserver(userId: String, listener: ValueEventListener) {
+        usersRef.child(userId).child("emergency-contacts").removeEventListener(listener)
     }
 }

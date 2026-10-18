@@ -1,7 +1,5 @@
 package com.example.htv11
 
-import android.content.Context
-import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -20,8 +18,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
-        handleEmergencyIntent(intent)
 
         setContent {
             Htv11Theme {
@@ -58,10 +54,6 @@ class MainActivity : ComponentActivity() {
                                         displayName = enteredName,
                                         onSuccess = {
                                             currentUser = AuthManager.currentUser
-                                            currentUser?.let { user ->
-                                                val prefs = getSharedPreferences("htv11_prefs", Context.MODE_PRIVATE)
-                                                prefs.edit().putString("current_user_id", user.uid).apply()
-                                            }
                                         },
                                         onError = { error ->
                                             Toast.makeText(
@@ -83,9 +75,6 @@ class MainActivity : ComponentActivity() {
 
                             // Sync user profile and listen for updates from RTDB
                             DisposableEffect(activeUser.uid) {
-                                val prefs = getSharedPreferences("htv11_prefs", Context.MODE_PRIVATE)
-                                prefs.edit().putString("current_user_id", activeUser.uid).apply()
-
                                 val self = GroupMember(
                                     id = activeUser.uid,
                                     name = displayName,
@@ -104,11 +93,53 @@ class MainActivity : ComponentActivity() {
                                     UserRepository.setOnlineStatus(activeUser.uid, false)
                                 }
                             }
+                            var handledNudge by remember { mutableLongStateOf(PinStore.lastHandledNudge(this)) }
+                            val myMember = members.firstOrNull { it.id == activeUser.uid }
+                            val myNudge = myMember?.lastNudged ?: 0L
+                            val myStatus = SafetyStatus.fromKey(myMember?.status)
+
+                            val shouldShowPinPrompt = (myStatus == SafetyStatus.UNSURE) || (myNudge > handledNudge)
+
+                            if (shouldShowPinPrompt) {
+                                NudgePinDialog(
+                                    onSubmit = { pin ->
+                                        // Both valid PINs close the dialog identically; only the stored status differs.
+                                        val status = when (PinStore.check(pin)) {
+                                            PinResult.NORMAL -> SafetyStatus.SAFE
+                                            PinResult.DURESS -> SafetyStatus.DANGER
+                                            PinResult.WRONG -> null
+                                        }
+                                        if (status != null) {
+                                            UserRepository.setStatus(activeUser.uid, status)
+                                            if (myNudge > 0L) {
+                                                PinStore.setLastHandledNudge(this, myNudge)
+                                                handledNudge = myNudge
+                                            }
+                                        }
+                                        status != null
+                                    }
+                                )
+                            }
+
+                            var emergencyContacts by remember { mutableStateOf<List<EmergencyContact>>(emptyList()) }
+
+                            DisposableEffect(activeUser.uid) {
+                                // Listen to real emergency contacts
+                                val contactListener = UserRepository.observeEmergencyContacts(activeUser.uid) { liveContacts ->
+                                    emergencyContacts = liveContacts
+                                }
+
+                                onDispose {
+                                    UserRepository.removeEmergencyContactsObserver(activeUser.uid, contactListener)
+                                }
+                            }
+
                             MainGroupScreen(
                                 currentUserName = displayName,
                                 members = members,
+                                emergencyContacts = emergencyContacts,
                                 onNudgeMember = { member ->
-                                    UserRepository.nudgeUser(member.id, member.status)
+                                    UserRepository.nudgeUser(member.id)
                                     val isSafe = member.status.lowercase() == "safe"
                                     val message = if (isSafe) {
                                         "Nudged ${member.name}! Status set to Unsure."
@@ -126,15 +157,6 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
-            }
-        }
-    }
-
-    private fun handleEmergencyIntent(intent: Intent?) {
-        if (intent?.getBooleanExtra("EMERGENCY_TRIGGERED", false) == true) {
-            val user = AuthManager.currentUser
-            if (user != null) {
-                UserRepository.updateStatus(user.uid, "danger")
             }
         }
     }
