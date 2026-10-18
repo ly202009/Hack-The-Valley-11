@@ -75,6 +75,9 @@ class MainActivity : ComponentActivity() {
 
                             // Sync user profile and listen for updates from RTDB
                             DisposableEffect(activeUser.uid) {
+                                val prefs = getSharedPreferences("htv11_prefs", MODE_PRIVATE)
+                                prefs.edit().putString("current_user_id", activeUser.uid).apply()
+
                                 val self = GroupMember(
                                     id = activeUser.uid,
                                     name = displayName,
