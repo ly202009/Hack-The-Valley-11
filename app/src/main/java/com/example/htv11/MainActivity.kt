@@ -67,6 +67,10 @@ class MainActivity : ComponentActivity() {
                                 currentUser = null
                             } else {
                                 currentUser = verifiedUser
+                                prefs.edit()
+                                    .putString("user_uuid", verifiedUser.uid)
+                                    .putString("current_user_id", verifiedUser.uid)
+                                    .apply()
                             }
                             isCheckingSession = false
                         }
@@ -111,7 +115,7 @@ class MainActivity : ComponentActivity() {
                 val textContact: (EmergencyContact) -> Unit = { contact ->
                     val uid = activeUserForContacts?.uid
                     if (uid != null) {
-                        val alertDisplayName = activeUserForContacts.displayName?.ifBlank { "Operative" } ?: "Operative"
+                        val alertDisplayName = activeUserForContacts.displayName?.ifBlank { "User" } ?: "User"
                         Toast.makeText(this, "Getting your location...", Toast.LENGTH_SHORT).show()
                         lifecycleScope.launch {
                             val location = LocationHelper.currentLocation(this@MainActivity)
@@ -224,16 +228,25 @@ class MainActivity : ComponentActivity() {
                         // 2. No session, display name missing, or group ID missing: show registration / group selection
                         currentUser == null || currentUser?.displayName.isNullOrBlank() || currentGroupId.isBlank() -> {
                             val activeDisplayName = currentUser?.displayName
+                            val activeUuid = currentUser?.uid ?: prefs.getString("user_uuid", "") ?: ""
                             RegistrationScreen(
                                 modifier = Modifier
                                     .padding(innerPadding)
                                     .imePadding(),
                                 currentDisplayName = activeDisplayName,
+                                userUuid = activeUuid,
                                 onSaveName = { enteredName ->
                                     AuthManager.signInAnonymously(
                                         displayName = enteredName,
                                         onSuccess = {
-                                            currentUser = AuthManager.currentUser
+                                            val user = AuthManager.currentUser
+                                            currentUser = user
+                                            if (user != null) {
+                                                prefs.edit()
+                                                    .putString("user_uuid", user.uid)
+                                                    .putString("current_user_id", user.uid)
+                                                    .apply()
+                                            }
                                         },
                                         onError = { error ->
                                             Toast.makeText(
@@ -270,7 +283,7 @@ class MainActivity : ComponentActivity() {
                         // 3. Authenticated & verified user in an active group: proceed to squad screen or map
                         else -> {
                             val activeUser = currentUser!!
-                            val displayName = activeUser.displayName?.ifBlank { "Operative" } ?: "Operative"
+                            val displayName = activeUser.displayName?.ifBlank { "User" } ?: "User"
                             var members by remember { mutableStateOf<List<GroupMember>>(emptyList()) }
                             var isProfileLoaded by remember { mutableStateOf(false) }
                             var showLeaveGroupDialog by remember { mutableStateOf(false) }
@@ -304,6 +317,7 @@ class MainActivity : ComponentActivity() {
                             // register membership in that group's roster.
                             DisposableEffect(activeUser.uid, currentGroupId) {
                                 prefs.edit().putString("current_user_id", activeUser.uid).apply()
+                                prefs.edit().putString("user_uuid", activeUser.uid).apply()
                                 prefs.edit().putString("current_group_id", currentGroupId).apply()
 
                                 UserRepository.joinGroup(currentGroupId, activeUser.uid)
@@ -325,14 +339,12 @@ class MainActivity : ComponentActivity() {
                                 subscription = UserRepository.observeGroupMembers(currentGroupId) { liveMembers ->
                                     members = liveMembers
 
-                                    // If removed from the group's roster after initial load, push back to first login page
+                                    // If removed from the group's roster after initial load, push back to group join screen
                                     if (isProfileLoaded && liveMembers.none { it.id == activeUser.uid }) {
                                         subscription?.let { UserRepository.removeGroupMembersObserver(it) }
                                         UserRepository.setOnlineStatus(activeUser.uid, false)
-                                        prefs.edit().clear().apply()
-                                        AuthManager.signOut()
+                                        prefs.edit().remove("current_group_id").apply()
                                         currentGroupId = ""
-                                        currentUser = null
                                     } else if (liveMembers.any { it.id == activeUser.uid }) {
                                         isProfileLoaded = true
                                     }
