@@ -1,8 +1,5 @@
 package com.example.htv11
 
-import android.content.Intent
-import android.provider.Settings
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,13 +25,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.htv11.ui.theme.Htv11Theme
 import com.google.firebase.database.PropertyName
 
@@ -44,7 +43,8 @@ data class GroupMember(
     var name: String = "",
     @get:PropertyName("isOnline") @set:PropertyName("isOnline")
     var isOnline: Boolean = true,
-    var status: String = "safe"
+    var status: String = "safe",
+    var photoUrl: String = ""
 )
 
 data class EmergencyContact(
@@ -65,6 +65,7 @@ fun MainGroupScreen(
     onDeleteEmergencyContactClick: (EmergencyContact) -> Unit = {},
     onAddEmergencyContactClick: () -> Unit = {},
     onOpenGroupSettings: () -> Unit = {},
+    onOpenUserSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val validMembers = members.filter { it.id.isNotBlank() && it.name.isNotBlank() }.distinctBy { it.id }
@@ -123,6 +124,7 @@ fun MainGroupScreen(
                         modifier = Modifier
                             .background(Color(0x2200FFCC), RoundedCornerShape(20.dp))
                             .border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(20.dp))
+                            .clickable(onClick = onOpenUserSettings)
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
                         Text(
@@ -132,32 +134,6 @@ fun MainGroupScreen(
                             fontWeight = FontWeight.SemiBold
                         )
                     }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-
-                val context = LocalContext.current
-                Button(
-                    onClick = {
-                        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                        }
-                        context.startActivity(intent)
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(40.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0x2200FFCC),
-                        contentColor = Color(0xFF00FFCC)
-                    ),
-                    border = BorderStroke(1.dp, Color(0xFF00FFCC))
-                ) {
-                    Text(
-                        text = "⚙️ Enable Silent Alarm Accessibility Service",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
             }
@@ -298,6 +274,20 @@ fun MemberCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                // Face photo, only when one's actually set — no fallback placeholder, layout
+                // stays exactly as it was before for anyone without a photoUrl.
+                if (member.photoUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = member.photoUrl,
+                        contentDescription = "${member.name}'s photo",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .border(1.dp, Color(0xFF00FFCC), CircleShape)
+                    )
+                }
+
                 // Glow dot uses status.color so it stays green (0xFF00FFCC) when status is SAFE or facade cover
                 Box(
                     modifier = Modifier

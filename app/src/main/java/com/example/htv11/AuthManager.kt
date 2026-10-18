@@ -78,4 +78,27 @@ object AuthManager {
     fun signOut() {
         auth.signOut()
     }
+
+    /** Updates the Firebase Auth profile's display name — the canonical "who am I" most of the app reads. */
+    fun updateDisplayName(
+        name: String,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit = {}
+    ) {
+        val user = auth.currentUser
+        if (user == null) {
+            onError(Exception("Not signed in"))
+            return
+        }
+        val profileUpdates = UserProfileChangeRequest.Builder()
+            .setDisplayName(name.trim())
+            .build()
+        user.updateProfile(profileUpdates).addOnCompleteListener { task ->
+            if (task.isSuccessful) {
+                onSuccess()
+            } else {
+                onError(task.exception ?: Exception("Failed to update display name"))
+            }
+        }
+    }
 }

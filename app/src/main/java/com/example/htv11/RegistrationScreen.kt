@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -30,7 +29,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -47,11 +45,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -71,14 +66,14 @@ fun generateRandomGroupId(): String {
 fun RegistrationScreen(
     modifier: Modifier = Modifier,
     currentDisplayName: String? = null,
-    userUuid: String? = null,
     onSaveName: (name: String) -> Unit = {},
     onJoinGroup: (groupId: String) -> Unit = {},
     onCreateGroup: (groupId: String, groupName: String) -> Unit = { _, _ -> },
     emergencyContacts: List<EmergencyContact> = emptyList(),
     onEmergencyContactClick: (EmergencyContact) -> Unit = {},
     onDeleteEmergencyContactClick: (EmergencyContact) -> Unit = {},
-    onAddEmergencyContactClick: () -> Unit = {}
+    onAddEmergencyContactClick: () -> Unit = {},
+    onOpenUserSettings: () -> Unit = {}
 ) {
     var nameInput by remember(currentDisplayName) { mutableStateOf(currentDisplayName ?: "") }
     var groupIdInput by remember { mutableStateOf("") }
@@ -155,63 +150,6 @@ fun RegistrationScreen(
                     color = Color(0xFF8BB5E2),
                     textAlign = TextAlign.Center
                 )
-            } else {
-                val clipboardManager = LocalClipboardManager.current
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0x11FFFFFF), RoundedCornerShape(12.dp))
-                        .border(1.dp, Color(0x3300FFCC), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "USER PROFILE",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF00FFCC)
-                            )
-                            Text(
-                                text = currentDisplayName,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                            if (!userUuid.isNullOrBlank()) {
-                                Text(
-                                    text = "UUID: $userUuid",
-                                    fontSize = 11.sp,
-                                    color = Color(0xFF8BB5E2)
-                                )
-                            }
-                        }
-
-                        if (!userUuid.isNullOrBlank()) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .border(1.dp, Color(0xFF00FFCC), CircleShape)
-                                    .clickable {
-                                        clipboardManager.setText(AnnotatedString(userUuid))
-                                        Toast.makeText(context, "UUID copied to clipboard", Toast.LENGTH_SHORT).show()
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_copy),
-                                    contentDescription = "Copy User UUID",
-                                    tint = Color(0xFF00FFCC),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-                    }
-                }
             }
 
             Spacer(modifier = Modifier.height(28.dp))
@@ -418,6 +356,27 @@ fun RegistrationScreen(
                     onContactClick = onEmergencyContactClick,
                     onDeleteContactClick = onDeleteEmergencyContactClick,
                     onAddContactClick = onAddEmergencyContactClick
+                )
+            }
+        }
+
+        // User Settings entry point — same badge MainGroupScreen uses, same destination.
+        // Only once there's an identity to manage (i.e. past Stage 1).
+        if (!currentDisplayName.isNullOrBlank()) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 48.dp, end = 20.dp)
+                    .background(Color(0x2200FFCC), RoundedCornerShape(20.dp))
+                    .border(1.dp, Color(0xFF00FFCC), RoundedCornerShape(20.dp))
+                    .clickable(onClick = onOpenUserSettings)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = currentDisplayName,
+                    color = Color(0xFF00FFCC),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }

@@ -2,10 +2,12 @@ package com.example.htv11.ui
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapShader
 import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color as AndroidColor
 import android.graphics.Paint
+import android.graphics.Shader
 import android.util.Log
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -21,8 +24,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import coil.ImageLoader
+import coil.request.ImageRequest
+import coil.request.SuccessResult
+import coil.size.Scale
 import com.example.htv11.AuthManager
 import com.example.htv11.DynamicBlueGridBackground
 import com.example.htv11.GroupLocation
@@ -34,6 +42,7 @@ import com.example.htv11.map.DemoLocation
 import com.example.htv11.map.MapTilerConfig
 import com.example.htv11.map.NightPalette
 import com.google.gson.JsonObject
+import kotlinx.coroutines.launch
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapView
@@ -155,9 +164,29 @@ fun GlassBuildingMapScreen(
         onDispose { UserRepository.removeGroupMembersObserver(subscription) }
     }
 
-    LaunchedEffect(loadedStyle, groupLocations, groupMembers) {
+    // Raw (uncomposited) square photo per member who has a photoUrl, fetched once per userId —
+    // re-fetched only if that member's url actually changes. Members with no photoUrl just keep
+    // using the existing generic classification icons (see updateGhostAvatars), nothing changes
+    // for them.
+    val photoBitmaps = remember { mutableStateMapOf<String, Bitmap>() }
+    val loadedPhotoUrls = remember { mutableStateMapOf<String, String>() }
+
+    LaunchedEffect(groupMembers) {
+        groupMembers.forEach { member ->
+            val url = member.photoUrl
+            if (url.isNotBlank() && loadedPhotoUrls[member.id] != url) {
+                loadedPhotoUrls[member.id] = url
+                launch {
+                    val bitmap = loadSquareBitmap(context, url, GHOST_ICON_SIZE_PX)
+                    if (bitmap != null) photoBitmaps[member.id] = bitmap
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(loadedStyle, groupLocations, groupMembers, photoBitmaps.toMap()) {
         val style = loadedStyle ?: return@LaunchedEffect
-        updateGhostAvatars(style, groupLocations, groupMembers)
+        updateGhostAvatars(style, context, groupLocations, groupMembers, photoBitmaps)
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -307,10 +336,15 @@ private fun addGhostAvatarLayer(style: Style, context: Context) {
     )
 }
 
+private fun photoIconIdFor(userId: String, classification: FloorClassification, isUnsafe: Boolean): String =
+    "kaze-ghost-photo-$userId-${classification.name}-$isUnsafe"
+
 private fun updateGhostAvatars(
     style: Style,
+    context: Context,
     groupLocations: List<GroupLocation>,
-    groupMembers: List<GroupMember>
+    groupMembers: List<GroupMember>,
+    photoBitmaps: Map<String, Bitmap>
 ) {
     val statusByUserId = groupMembers.associateBy({ it.id }, { it.status })
     val memberIds = statusByUserId.keys
@@ -321,16 +355,94 @@ private fun updateGhostAvatars(
         val status = statusByUserId[location.userId]?.ifBlank { "safe" } ?: "safe"
         val isUnsafe = status.equals("danger", ignoreCase = true)
 
+        val photoBitmap = photoBitmaps[location.userId]
+        val iconId = if (photoBitmap != null) {
+            val id = photoIconIdFor(location.userId, location.classification, isUnsafe)
+            // Cheap to re-register every update; MapLibre just overwrites the same id.
+            style.addImage(id, compositePhotoAvatarBitmap(context, photoBitmap, location.classification, isUnsafe))
+            id
+        } else {
+            iconIdFor(location.classification, isUnsafe)
+        }
+
         val point = Point.fromLngLat(location.longitude, location.latitude, location.clampedAltitudeMeters)
         val properties = JsonObject().apply {
             addProperty("userId", location.userId)
-            addProperty("iconId", iconIdFor(location.classification, isUnsafe))
+            addProperty("iconId", iconId)
         }
         Feature.fromGeometry(point, properties)
     }
 
     // TODO: name label per marker — nice follow-up, not required for this pass.
     (style.getSource(GHOST_SOURCE_ID) as? GeoJsonSource)?.setGeoJson(FeatureCollection.fromFeatures(features))
+}
+
+/** Fetches and decodes [url] into a bitmap already cropped/scaled to a [sizePx] square. */
+private suspend fun loadSquareBitmap(context: Context, url: String, sizePx: Int): Bitmap? {
+    val loader = ImageLoader(context)
+    val request = ImageRequest.Builder(context)
+        .data(url)
+        .size(sizePx, sizePx)
+        .scale(Scale.FILL)
+        .allowHardware(false) // need a software bitmap to draw into a Canvas below
+        .build()
+
+    val result = loader.execute(request)
+    val drawable = (result as? SuccessResult)?.drawable ?: return null
+    return drawable.toBitmap(sizePx, sizePx)
+}
+
+/** Same ring/glow/caution treatment as [createGhostAvatarBitmap], with a real photo as the fill. */
+private fun compositePhotoAvatarBitmap(
+    context: Context,
+    sourceBitmap: Bitmap,
+    classification: FloorClassification,
+    isUnsafe: Boolean
+): Bitmap {
+    val bitmap = Bitmap.createBitmap(GHOST_ICON_SIZE_PX, GHOST_ICON_SIZE_PX, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+
+    val center = GHOST_ICON_SIZE_PX / 2f
+    val avatarRadius = GHOST_ICON_SIZE_PX / 2f - 10f
+    val isUnderground = classification == FloorClassification.CONFIDENT_UNDERGROUND
+    val strokeColor = if (isUnderground) UNDERGROUND_STROKE_COLOR else NightPalette.ACCENT
+
+    if (isUnsafe) {
+        val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = AndroidColor.parseColor(UNSAFE_GLOW_COLOR)
+            style = Paint.Style.STROKE
+            strokeWidth = 16f
+            maskFilter = BlurMaskFilter(18f, BlurMaskFilter.Blur.NORMAL)
+        }
+        canvas.drawCircle(center, center, avatarRadius, glowPaint)
+    }
+
+    val photoPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        shader = BitmapShader(sourceBitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+    }
+    canvas.drawCircle(center, center, avatarRadius, photoPaint)
+
+    val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = AndroidColor.parseColor(strokeColor)
+        style = Paint.Style.STROKE
+        strokeWidth = 6f
+    }
+    canvas.drawCircle(center, center, avatarRadius, strokePaint)
+
+    if (isUnsafe) {
+        val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = AndroidColor.parseColor(UNSAFE_GLOW_COLOR)
+            style = Paint.Style.STROKE
+            strokeWidth = 4f
+        }
+        canvas.drawCircle(center, center, avatarRadius, ringPaint)
+    }
+
+    if (classification == FloorClassification.UNCERTAIN) {
+        drawCautionBadge(context, canvas)
+    }
+
+    return bitmap
 }
 
 private fun createGhostAvatarBitmap(

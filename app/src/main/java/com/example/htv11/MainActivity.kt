@@ -1,9 +1,12 @@
 package com.example.htv11
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -33,6 +36,7 @@ import com.example.htv11.ui.AppTab
 import com.example.htv11.ui.GlassBuildingMapScreen
 import com.example.htv11.ui.GroupSettingsScreen
 import com.example.htv11.ui.KazeBottomBar
+import com.example.htv11.ui.UserSettingsScreen
 import androidx.lifecycle.lifecycleScope
 import com.example.htv11.ui.theme.Htv11Theme
 import kotlinx.coroutines.launch
@@ -54,6 +58,7 @@ class MainActivity : ComponentActivity() {
                 }
                 var currentGroupName by remember { mutableStateOf<String?>(null) }
                 var justCreatedGroupId by remember { mutableStateOf<String?>(null) }
+                var showUserSettings by remember { mutableStateOf(false) }
 
                 var selectedTab by remember { mutableStateOf(AppTab.GROUP) }
 
@@ -68,7 +73,6 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 currentUser = verifiedUser
                                 prefs.edit()
-                                    .putString("user_uuid", verifiedUser.uid)
                                     .putString("current_user_id", verifiedUser.uid)
                                     .apply()
                             }
@@ -104,6 +108,19 @@ class MainActivity : ComponentActivity() {
                 var showAddContact by remember { mutableStateOf(false) }
                 var pendingContact by remember { mutableStateOf<EmergencyContact?>(null) }
                 var contactToDelete by remember { mutableStateOf<EmergencyContact?>(null) }
+
+                // Same reasoning as emergency contacts — flat, personal, needed regardless of
+                // group state, so User Settings can show it from either the chooser or squad screen.
+                var myPhotoUrl by remember { mutableStateOf<String?>(null) }
+                DisposableEffect(activeUserForContacts?.uid) {
+                    val uid = activeUserForContacts?.uid
+                    if (uid == null) {
+                        onDispose {}
+                    } else {
+                        val photoListener = UserRepository.observePhotoUrl(uid) { url -> myPhotoUrl = url }
+                        onDispose { UserRepository.removePhotoUrlObserver(uid, photoListener) }
+                    }
+                }
 
                 // Keep a recent location on hand for the silent alarm, which can't read it from the background.
                 LaunchedEffect(activeUserForContacts?.uid) {
@@ -209,6 +226,36 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
+                // User Settings: reachable from both the pre-group chooser and the in-group
+                // squad screen (same badge, same destination, same as Emergency Contacts).
+                val onSaveDisplayName: (String) -> Unit = { newName ->
+                    AuthManager.updateDisplayName(
+                        name = newName,
+                        onSuccess = {
+                            currentUser = AuthManager.currentUser
+                            currentUser?.uid?.let { uid -> UserRepository.updateUserName(uid, newName) }
+                            Toast.makeText(this, "Name updated", Toast.LENGTH_SHORT).show()
+                        },
+                        onError = { error ->
+                            Toast.makeText(this, error.localizedMessage ?: "Couldn't update name", Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                }
+                val onOpenAccessibilitySettings: () -> Unit = {
+                    startActivity(
+                        Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                    )
+                }
+                val onOpenLocationSettings: () -> Unit = {
+                    startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                    )
+                }
+
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     bottomBar = {
@@ -225,16 +272,31 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        // 2. No session, display name missing, or group ID missing: show registration / group selection
+                        // 2. User Settings overlay — reachable regardless of group state, so it
+                        // sits ahead of the registration-vs-group branch below.
+                        showUserSettings && currentUser != null -> {
+                            UserSettingsScreen(
+                                displayName = currentUser?.displayName?.ifBlank { "User" } ?: "User",
+                                photoUrl = myPhotoUrl,
+                                onSaveDisplayName = onSaveDisplayName,
+                                onOpenAccessibilitySettings = onOpenAccessibilitySettings,
+                                onOpenLocationSettings = onOpenLocationSettings,
+                                onClose = { showUserSettings = false },
+                                onDeleteAccountClick = {
+                                    Toast.makeText(this, "Account deletion coming soon", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.padding(innerPadding)
+                            )
+                        }
+
+                        // 3. No session, display name missing, or group ID missing: show registration / group selection
                         currentUser == null || currentUser?.displayName.isNullOrBlank() || currentGroupId.isBlank() -> {
                             val activeDisplayName = currentUser?.displayName
-                            val activeUuid = currentUser?.uid ?: prefs.getString("user_uuid", "") ?: ""
                             RegistrationScreen(
                                 modifier = Modifier
                                     .padding(innerPadding)
                                     .imePadding(),
                                 currentDisplayName = activeDisplayName,
-                                userUuid = activeUuid,
                                 onSaveName = { enteredName ->
                                     AuthManager.signInAnonymously(
                                         displayName = enteredName,
@@ -243,7 +305,6 @@ class MainActivity : ComponentActivity() {
                                             currentUser = user
                                             if (user != null) {
                                                 prefs.edit()
-                                                    .putString("user_uuid", user.uid)
                                                     .putString("current_user_id", user.uid)
                                                     .apply()
                                             }
@@ -276,11 +337,12 @@ class MainActivity : ComponentActivity() {
                                 emergencyContacts = emergencyContacts,
                                 onEmergencyContactClick = onEmergencyContactClick,
                                 onDeleteEmergencyContactClick = { contact -> contactToDelete = contact },
-                                onAddEmergencyContactClick = { showAddContact = true }
+                                onAddEmergencyContactClick = { showAddContact = true },
+                                onOpenUserSettings = { showUserSettings = true }
                             )
                         }
 
-                        // 3. Authenticated & verified user in an active group: proceed to squad screen or map
+                        // 4. Authenticated & verified user in an active group: proceed to squad screen or map
                         else -> {
                             val activeUser = currentUser!!
                             val displayName = activeUser.displayName?.ifBlank { "User" } ?: "User"
@@ -317,7 +379,6 @@ class MainActivity : ComponentActivity() {
                             // register membership in that group's roster.
                             DisposableEffect(activeUser.uid, currentGroupId) {
                                 prefs.edit().putString("current_user_id", activeUser.uid).apply()
-                                prefs.edit().putString("user_uuid", activeUser.uid).apply()
                                 prefs.edit().putString("current_group_id", currentGroupId).apply()
 
                                 UserRepository.joinGroup(currentGroupId, activeUser.uid)
@@ -546,6 +607,7 @@ class MainActivity : ComponentActivity() {
                                             ).show()
                                         },
                                         onOpenGroupSettings = { showGroupSettings = true },
+                                        onOpenUserSettings = { showUserSettings = true },
                                         modifier = Modifier.padding(innerPadding)
                                     )
 

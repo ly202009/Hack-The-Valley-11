@@ -81,4 +81,8 @@ dependencies {
     // When using the BoM, you don't specify versions in Firebase library dependencies
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-database")
+
+    // Profile photo loading (Settings avatar, member list, map icons) — photos are plain URLs
+    // in RTDB (users/{uid}/photoUrl), not Firebase Storage, so this is all we need.
+    implementation("io.coil-kt:coil-compose:2.7.0")
 }

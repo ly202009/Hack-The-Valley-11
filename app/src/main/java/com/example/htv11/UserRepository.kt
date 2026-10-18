@@ -144,6 +144,38 @@ object UserRepository {
         }
     }
 
+    /** Updates just the name field — unlike saveUser, never touches status/isOnline. */
+    fun updateUserName(userId: String, name: String) {
+        if (userId.isBlank() || name.isBlank()) return
+        usersRef.child(userId).child("name").setValue(name.trim())
+    }
+
+    /** A plain image URL, not a Firebase Storage reference — set manually via the RTDB console for now. */
+    fun updatePhotoUrl(userId: String, url: String) {
+        if (userId.isBlank()) return
+        usersRef.child(userId).child("photoUrl").setValue(url.trim())
+    }
+
+    fun observePhotoUrl(userId: String, onUpdate: (String?) -> Unit): ValueEventListener {
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                onUpdate(snapshot.getValue(String::class.java))
+            }
+
+            override fun onCancelled(error: DatabaseError) {}
+        }
+        if (userId.isNotBlank()) {
+            usersRef.child(userId).child("photoUrl").addValueEventListener(listener)
+        }
+        return listener
+    }
+
+    fun removePhotoUrlObserver(userId: String, listener: ValueEventListener) {
+        if (userId.isNotBlank()) {
+            usersRef.child(userId).child("photoUrl").removeEventListener(listener)
+        }
+    }
+
     fun setOnlineStatus(userId: String, isOnline: Boolean) {
         if (userId.isBlank()) return
         val statusRef = usersRef.child(userId).child("isOnline")
