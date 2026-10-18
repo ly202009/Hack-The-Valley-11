@@ -7,6 +7,7 @@ import android.graphics.Canvas
 import android.graphics.Color as AndroidColor
 import android.graphics.Paint
 import android.util.Log
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -22,9 +23,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.example.htv11.AuthManager
+import com.example.htv11.DynamicBlueGridBackground
 import com.example.htv11.GroupLocation
 import com.example.htv11.GroupMember
-import com.example.htv11.LocationRepository
 import com.example.htv11.R
 import com.example.htv11.UserRepository
 import com.example.htv11.location.FloorClassification
@@ -68,10 +70,14 @@ private const val UNSAFE_GLOW_COLOR = "#FF5252"
 // data lives in MainActivity now (runs the whole time you're signed in,
 // regardless of which tab is selected) — this screen just reads the shared
 // Firebase state and draws it, same as it already did for everyone else's
-// markers, now including its own.
+// markers, now including its own. groupLocations is likewise owned and kept
+// warm by MainActivity (not fetched independently here), so by the time this
+// screen is entered, your own synced position is usually already on hand.
 @Composable
 fun GlassBuildingMapScreen(
     groupId: String = "DEFAULT_SQUAD",
+    groupLocations: List<GroupLocation>,
+    hasLocationPermission: Boolean,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -95,11 +101,36 @@ fun GlassBuildingMapScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(mapView) {
+    // One-shot camera target for this visit to the screen: either my own synced position, or —
+    // only if permission was never granted, so nothing is ever coming — the Sam Ibrahim fallback.
+    // Resolves exactly once and locks, so there's never a visible jump from one to the other; the
+    // map simply isn't shown (see the Box below) until this resolves.
+    val myLocation = groupLocations.firstOrNull { it.userId == AuthManager.currentUser?.uid }
+    var cameraTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var cameraResolved by remember { mutableStateOf(false) }
+
+    LaunchedEffect(myLocation, hasLocationPermission) {
+        if (cameraResolved) return@LaunchedEffect
+        when {
+            myLocation != null -> {
+                cameraTarget = myLocation.latitude to myLocation.longitude
+                cameraResolved = true
+            }
+            !hasLocationPermission -> {
+                cameraTarget = DemoLocation.SAM_IBRAHIM_LAT to DemoLocation.SAM_IBRAHIM_LNG
+                cameraResolved = true
+            }
+            // else: permission granted, still waiting on the sync round-trip — stay unresolved.
+        }
+    }
+
+    LaunchedEffect(mapView, cameraTarget) {
+        val (lat, lng) = cameraTarget ?: return@LaunchedEffect
         mapView.getMapAsync { map ->
-            // Instant snap, not an animated fly-in: this is what judges see on boot.
+            // Instant snap, not an animated fly-in — but the screen itself stays hidden
+            // until this fires, so there's nothing visible to snap away from.
             map.cameraPosition = CameraPosition.Builder()
-                .target(LatLng(DemoLocation.SAM_IBRAHIM_LAT, DemoLocation.SAM_IBRAHIM_LNG))
+                .target(LatLng(lat, lng))
                 .zoom(DemoLocation.BOOT_ZOOM)
                 .tilt(DemoLocation.BOOT_PITCH)
                 .build()
@@ -111,17 +142,6 @@ fun GlassBuildingMapScreen(
                 loadedStyle = style
             }
         }
-    }
-
-    // Read path: every user's current location is global (locations/{userId}, not scoped to a
-    // group), so this screen filters down to just the current group's roster before rendering.
-    var groupLocations by remember { mutableStateOf<List<GroupLocation>>(emptyList()) }
-
-    DisposableEffect(Unit) {
-        val listener = LocationRepository.observeAllLocations { locations ->
-            groupLocations = locations
-        }
-        onDispose { LocationRepository.removeObserver(listener) }
     }
 
     // Status (safe/unsure/danger) lives on the flat users/{userId} profile, joined client-side
@@ -140,10 +160,18 @@ fun GlassBuildingMapScreen(
         updateGhostAvatars(style, groupLocations, groupMembers)
     }
 
-    AndroidView(
-        modifier = modifier.fillMaxSize(),
-        factory = { mapView }
-    )
+    Box(modifier = modifier.fillMaxSize()) {
+        if (cameraTarget == null) {
+            // Waiting on the one-shot camera resolution above — same loading look used
+            // elsewhere in the app, never the wrong map position.
+            DynamicBlueGridBackground()
+        } else {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { mapView }
+            )
+        }
+    }
 }
 
 // Recolors the loaded style to match the KAZE login/signup screens' navy + cyan

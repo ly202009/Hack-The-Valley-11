@@ -551,6 +551,8 @@ class MainActivity : ComponentActivity() {
 
                                     AppTab.MAP -> GlassBuildingMapScreen(
                                         groupId = currentGroupId,
+                                        groupLocations = groupLocations,
+                                        hasLocationPermission = hasLocationPermission,
                                         modifier = Modifier.padding(innerPadding)
                                     )
                                 }
