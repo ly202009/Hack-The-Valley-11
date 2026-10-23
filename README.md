@@ -39,7 +39,7 @@ Check out our project on [Devpost.](https://devpost.com/software/squad-mesh)
 ## Running Project Files
 1. Download Android Studio Rabbit 1 (Best to match version).
 2. Fork our github repository.
-3. Clone to local PC (```git clone https://github.com/ly202009/Hack-The-Valley-11```)
+3. Clone to local folder (```git clone https://github.com/ly202009/Hack-The-Valley-11.git```)
 4. Set up Firebase project with an android app and anonymous authentication enabled
    - To match our provided files, name the package ```com.example.htv11```
    - Follow the instructions on the website for adding the config file to the project and adding Firebase SDK
